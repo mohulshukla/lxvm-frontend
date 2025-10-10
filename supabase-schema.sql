@@ -60,7 +60,7 @@ CREATE TRIGGER update_votes_updated_at
 CREATE OR REPLACE FUNCTION generate_shareable_id()
 RETURNS TEXT AS $$
 BEGIN
-    RETURN encode(gen_random_bytes(8), 'base64url');
+    RETURN replace(replace(encode(gen_random_bytes(8), 'base64'), '+', '-'), '/', '_');
 END;
 $$ LANGUAGE plpgsql;
 
@@ -73,21 +73,21 @@ CREATE OR REPLACE FUNCTION create_prediction_market(
 )
 RETURNS UUID AS $$
 DECLARE
-    market_id UUID;
-    shareable_id TEXT;
+    new_market_id UUID;
+    new_shareable_id TEXT;
 BEGIN
     -- Generate unique shareable ID
     LOOP
-        shareable_id := generate_shareable_id();
-        EXIT WHEN NOT EXISTS (SELECT 1 FROM prediction_markets WHERE prediction_markets.shareable_id = shareable_id);
+        new_shareable_id := generate_shareable_id();
+        EXIT WHEN NOT EXISTS (SELECT 1 FROM prediction_markets WHERE shareable_id = new_shareable_id);
     END LOOP;
     
     -- Insert the new market
     INSERT INTO prediction_markets (title, description, created_by, resolution_threshold, shareable_id)
-    VALUES (market_title, market_description, creator_address, threshold, shareable_id)
-    RETURNING id INTO market_id;
+    VALUES (market_title, market_description, creator_address, threshold, new_shareable_id)
+    RETURNING id INTO new_market_id;
     
-    RETURN market_id;
+    RETURN new_market_id;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -158,6 +158,7 @@ CREATE POLICY "Allow read access to votes" ON votes FOR SELECT USING (true);
 
 -- Users can insert their own data
 CREATE POLICY "Allow insert own user" ON users FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow insert prediction_markets" ON prediction_markets FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow insert own votes" ON votes FOR INSERT WITH CHECK (true);
 
 -- Market creators can update their markets
