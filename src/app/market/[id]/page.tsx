@@ -28,52 +28,6 @@ export default function MarketPage() {
   const marketId = params.id as string
   const decodedMarketId = decodeURIComponent(marketId)
 
-  useEffect(() => {
-    if (marketId) {
-      fetchMarket()
-    }
-  }, [marketId, fetchMarket])
-
-  useEffect(() => {
-    if (market && address) {
-      fetchUserVote()
-      fetchMarketStats()
-    }
-  }, [market, address, fetchUserVote, fetchMarketStats])
-
-  // Real-time updates for market stats
-  useEffect(() => {
-    if (!market) return
-
-    console.log('Setting up real-time subscription for market:', market.id)
-
-    const channel = supabase
-      .channel(`market-${market.id}`)
-      .on('postgres_changes', 
-        { 
-          event: '*', 
-          schema: 'public', 
-          table: 'votes',
-          filter: `market_id=eq.${market.id}`
-        }, 
-        (payload) => {
-          console.log('Real-time vote update:', payload)
-          // Refresh market stats when votes change
-          fetchMarketStats()
-          // Refresh user vote if it's the current user
-          if (address && payload.new?.voter_address === address) {
-            fetchUserVote()
-          }
-        }
-      )
-      .subscribe()
-
-    return () => {
-      console.log('Cleaning up real-time subscription')
-      supabase.removeChannel(channel)
-    }
-  }, [market, address, fetchMarketStats, fetchUserVote])
-
   const fetchMarket = useCallback(async () => {
     try {
       console.log('Looking for market with shareable_id (raw):', marketId)
@@ -144,6 +98,52 @@ export default function MarketPage() {
       console.error('Error fetching market stats:', err)
     }
   }, [market])
+
+  useEffect(() => {
+    if (marketId) {
+      fetchMarket()
+    }
+  }, [marketId, fetchMarket])
+
+  useEffect(() => {
+    if (market && address) {
+      fetchUserVote()
+      fetchMarketStats()
+    }
+  }, [market, address, fetchUserVote, fetchMarketStats])
+
+  // Real-time updates for market stats
+  useEffect(() => {
+    if (!market) return
+
+    console.log('Setting up real-time subscription for market:', market.id)
+
+    const channel = supabase
+      .channel(`market-${market.id}`)
+      .on('postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'votes',
+          filter: `market_id=eq.${market.id}`
+        },
+        (payload) => {
+          console.log('Real-time vote update:', payload)
+          // Refresh market stats when votes change
+          fetchMarketStats()
+          // Refresh user vote if it's the current user
+          if (address && (payload.new as any)?.voter_address === address) {
+            fetchUserVote()
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      console.log('Cleaning up real-time subscription')
+      supabase.removeChannel(channel)
+    }
+  }, [market, address, fetchMarketStats, fetchUserVote])
 
   const handleSubmitVote = async () => {
     if (!isConnected || !address || !market) {
