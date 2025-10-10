@@ -1,36 +1,90 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Prediction Market Platform
 
-## Getting Started
+A decentralized prediction market platform built with Next.js, Supabase, and RainbowKit for MetaMask wallet integration.
 
-First, run the development server:
+## Features
+
+- **Admin Dashboard**: Create prediction markets with custom questions and descriptions
+- **Shareable Links**: Generate unique links for each market to share with participants
+- **Wallet Integration**: Connect with MetaMask using RainbowKit
+- **Confidence Voting**: Vote with confidence levels from 0 to 1 (0% to 100%)
+- **Real-time Statistics**: View live voting results and market statistics
+- **Auto-resolution**: Markets automatically resolve based on weighted vote thresholds
+
+## Setup Instructions
+
+### 1. Environment Variables
+
+Create a `.env.local` file in the root directory:
+
+```bash
+# Supabase Configuration
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url_here
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key_here
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
+
+# WalletConnect Project ID (optional)
+NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID=your_project_id_here
+```
+
+### 2. Supabase Database Setup
+
+1. Create a new Supabase project at [supabase.com](https://supabase.com)
+2. Go to the SQL Editor in your Supabase dashboard
+3. Run the SQL schema from `supabase-schema.sql` to create the necessary tables and functions
+4. Copy your project URL and anon key to the environment variables
+
+### 3. Install Dependencies
+
+```bash
+npm install
+```
+
+### 4. Run Development Server
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) to see the application.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Usage
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Admin Dashboard (`/admin`)
+- Connect your wallet
+- Create new prediction markets
+- Set resolution thresholds
+- Generate shareable links
+- Monitor voting progress
 
-## Learn More
+### Market Voting (`/market/[id]`)
+- Access markets via shareable links
+- Connect wallet to vote
+- Vote YES or NO with confidence levels
+- Provide optional evidence/reasoning
+- View real-time market statistics
 
-To learn more about Next.js, take a look at the following resources:
+## Database Schema
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The application uses the following main tables:
+- `users`: Wallet addresses and user information
+- `prediction_markets`: Market details and metadata
+- `votes`: Individual votes with confidence levels and evidence
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Deployment
 
-## Deploy on Vercel
+Deploy to Vercel:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npm run build
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Make sure to set your environment variables in the Vercel dashboard.
+
+## Technology Stack
+
+- **Frontend**: Next.js 15, React 19, TypeScript
+- **Styling**: Tailwind CSS
+- **Database**: Supabase (PostgreSQL)
+- **Wallet**: RainbowKit + Wagmi
+- **Deployment**: Vercel
