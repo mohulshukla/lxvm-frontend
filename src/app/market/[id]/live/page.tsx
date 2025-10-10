@@ -43,6 +43,8 @@ export default function LiveMarketMonitor() {
   const [isCreator, setIsCreator] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting')
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [retryCount, setRetryCount] = useState(0)
+  const [subscriptionError, setSubscriptionError] = useState<string | null>(null)
 
   const marketId = params.id as string
   const decodedMarketId = decodeURIComponent(marketId)
@@ -120,57 +122,121 @@ export default function LiveMarketMonitor() {
     }
   }, [market, fetchMarketStats, fetchVotes])
 
-  // Real-time updates
+  // Enhanced real-time updates with retry logic and polling fallback
   useEffect(() => {
     if (!market) return
 
     console.log('🔴 Setting up live monitoring for market:', market.id)
     setConnectionStatus('connecting')
+    setSubscriptionError(null)
 
-    const channel = supabase
-      .channel(`live-monitor-${market.id}`)
-      .on('postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'votes',
-          filter: `market_id=eq.${market.id}`
-        },
-        (payload) => {
-          console.log('🟢 Live vote update received:', payload)
-          setLastUpdate(new Date())
+    let channel: any = null
+    let pollInterval: NodeJS.Timeout | null = null
+    let retryTimeout: NodeJS.Timeout | null = null
+
+    const setupSubscription = () => {
+      console.log(`🔄 Attempting to connect (attempt ${retryCount + 1})`)
+      
+      channel = supabase
+        .channel(`live-monitor-${market.id}-${Date.now()}`)
+        .on('postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'votes',
+            filter: `market_id=eq.${market.id}`
+          },
+          (payload) => {
+            console.log('🟢 Live vote update received:', payload)
+            setLastUpdate(new Date())
+            fetchMarketStats()
+            fetchVotes()
+            // Reset retry count on successful update
+            setRetryCount(0)
+          }
+        )
+        .subscribe((status) => {
+          console.log('📡 Subscription status:', status)
+          switch (status) {
+            case 'SUBSCRIBED':
+              setConnectionStatus('connected')
+              setSubscriptionError(null)
+              setRetryCount(0)
+              console.log('✅ Successfully connected to real-time updates')
+              // Clear any existing polling
+              if (pollInterval) {
+                clearInterval(pollInterval)
+                pollInterval = null
+              }
+              break
+            case 'CHANNEL_ERROR':
+            case 'TIMED_OUT':
+              setConnectionStatus('error')
+              setSubscriptionError(`Connection error: ${status}`)
+              console.error('❌ Subscription error:', status)
+              handleConnectionFailure()
+              break
+            case 'CLOSED':
+              setConnectionStatus('disconnected')
+              console.log('🔴 Subscription closed')
+              break
+            default:
+              console.log('📊 Subscription status:', status)
+          }
+        })
+    }
+
+    const handleConnectionFailure = () => {
+      // Clean up current subscription
+      if (channel) {
+        supabase.removeChannel(channel)
+        channel = null
+      }
+
+      // Set up polling fallback if real-time fails
+      if (!pollInterval) {
+        console.log('🔄 Real-time failed, starting polling fallback...')
+        setConnectionStatus('disconnected')
+        
+        pollInterval = setInterval(() => {
+          console.log('🔄 Polling for updates...')
           fetchMarketStats()
           fetchVotes()
-        }
-      )
-      .subscribe((status) => {
-        console.log('📡 Subscription status:', status)
-        switch (status) {
-          case 'SUBSCRIBED':
-            setConnectionStatus('connected')
-            console.log('✅ Successfully connected to real-time updates')
-            break
-          case 'CHANNEL_ERROR':
-          case 'TIMED_OUT':
-            setConnectionStatus('error')
-            console.error('❌ Subscription error:', status)
-            break
-          case 'CLOSED':
-            setConnectionStatus('disconnected')
-            console.log('🔴 Subscription closed')
-            break
-          default:
-            console.log('📊 Subscription status:', status)
-        }
-      })
+          setLastUpdate(new Date())
+        }, 3000) // Poll every 3 seconds
+      }
+
+      // Retry subscription after delay
+      if (retryCount < 5) {
+        const delay = Math.min(1000 * Math.pow(2, retryCount), 10000) // Exponential backoff, max 10s
+        console.log(`🔄 Retrying subscription in ${delay}ms...`)
+        
+        retryTimeout = setTimeout(() => {
+          setRetryCount(prev => prev + 1)
+          setupSubscription()
+        }, delay)
+      }
+    }
+
+    // Initial subscription attempt
+    setupSubscription()
 
     // Cleanup function
     return () => {
       console.log('🧹 Cleaning up live monitoring subscription')
       setConnectionStatus('disconnected')
-      supabase.removeChannel(channel)
+      
+      if (channel) {
+        supabase.removeChannel(channel)
+      }
+      if (pollInterval) {
+        clearInterval(pollInterval)
+      }
+      if (retryTimeout) {
+        clearTimeout(retryTimeout)
+      }
     }
-  }, [market, fetchMarketStats, fetchVotes])
+  }, [market, fetchMarketStats, fetchVotes, retryCount])
 
   const getConsensusDirection = () => {
     if (!marketStats || marketStats.total_votes === 0) return 'neutral'
@@ -225,17 +291,17 @@ export default function LiveMarketMonitor() {
         }
       case 'connecting':
         return {
-          text: 'CONNECTING',
+          text: retryCount > 0 ? `CONNECTING (${retryCount}/5)` : 'CONNECTING',
           color: 'bg-yellow-500',
           textColor: 'text-yellow-600',
           icon: '🟡'
         }
       case 'disconnected':
         return {
-          text: 'DISCONNECTED',
-          color: 'bg-gray-500',
-          textColor: 'text-gray-600',
-          icon: '⚪'
+          text: 'POLLING',
+          color: 'bg-blue-500',
+          textColor: 'text-blue-600',
+          icon: '🔄'
         }
       case 'error':
         return {
@@ -373,6 +439,24 @@ export default function LiveMarketMonitor() {
           </Card>
 
           {/* Connection Status Card */}
+          {connectionStatus === 'disconnected' && (
+            <Card className="mb-8 border-blue-200 bg-blue-50/50 dark:border-blue-800 dark:bg-blue-950/20">
+              <CardContent className="p-6">
+                <div className="flex items-center gap-3">
+                  <div className="text-2xl">🔄</div>
+                  <div>
+                    <h3 className="font-semibold text-blue-800 dark:text-blue-200">
+                      Polling Mode Active
+                    </h3>
+                    <p className="text-sm text-blue-600 dark:text-blue-400">
+                      Real-time connection unavailable. Using polling every 3 seconds to check for updates.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {connectionStatus === 'error' && (
             <Card className="mb-8 border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20">
               <CardContent className="p-6">
@@ -380,10 +464,13 @@ export default function LiveMarketMonitor() {
                   <div className="text-2xl">🔴</div>
                   <div>
                     <h3 className="font-semibold text-red-800 dark:text-red-200">
-                      Real-time Connection Error
+                      Connection Error
                     </h3>
                     <p className="text-sm text-red-600 dark:text-red-400">
-                      Unable to connect to live updates. Please check your internet connection and refresh the page.
+                      {subscriptionError || 'Unable to connect to live updates. Using polling fallback.'}
+                    </p>
+                    <p className="text-xs text-red-500 dark:text-red-500 mt-2">
+                      💡 Tip: Enable Realtime for the 'votes' table in your Supabase dashboard to get instant updates.
                     </p>
                   </div>
                 </div>
@@ -582,6 +669,23 @@ export default function LiveMarketMonitor() {
               <Activity className="h-4 w-4" />
               Refresh Data
             </Button>
+            {connectionStatus !== 'connected' && (
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={() => {
+                  console.log('🔄 Manual connection retry triggered')
+                  setRetryCount(0)
+                  setConnectionStatus('connecting')
+                  // Force re-subscription by changing the effect dependency
+                  window.location.reload()
+                }}
+                className="gap-2"
+              >
+                <Activity className="h-4 w-4" />
+                Retry Connection
+              </Button>
+            )}
           </div>
         </div>
       </div>
