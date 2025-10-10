@@ -26,15 +26,15 @@ export default function Home() {
 
         <div className="grid md:grid-cols-2 gap-8 max-w-6xl mx-auto mb-16">
           <Card className="hover:shadow-lg transition-shadow">
-            <CardHeader className="text-center">
-              <CardTitle className="flex items-center justify-center gap-2">
-                {/* <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
                   <span className="text-primary font-bold">📊</span>
-                </div> */}
+                </div>
                 Create Markets
               </CardTitle>
-              <CardDescription className="text-center">
-                Generate shareable links for voters
+              <CardDescription>
+                As an admin, create prediction markets and generate shareable links for participants.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -47,15 +47,15 @@ export default function Home() {
           </Card>
 
           <Card className="hover:shadow-lg transition-shadow">
-            <CardHeader className="text-center">
-              <CardTitle className="flex items-center justify-center gap-2">
-                {/* <div className="w-8 h-8 bg-green-500/10 rounded-full flex items-center justify-center">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-green-500/10 rounded-full flex items-center justify-center">
                   <span className="text-green-600 font-bold">🗳️</span>
-                </div> */}
+                </div>
                 Participate
               </CardTitle>
-              <CardDescription className="text-center">
-                Use your wallet and start voting with confidence
+              <CardDescription>
+                Vote on prediction markets using your wallet with confidence levels from 0 to 1.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -64,9 +64,9 @@ export default function Home() {
                   Browse All Markets
                 </Button>
               </Link>
-              {/* <p className="text-center text-sm text-muted-foreground">
+              <p className="text-center text-sm text-muted-foreground">
                 Or use a shareable link to join a specific market
-              </p> */}
+              </p>
             </CardContent>
           </Card>
         </div>
