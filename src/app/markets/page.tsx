@@ -365,7 +365,7 @@ export default function MarketsPage() {
                       </div>
                       <div className="text-center">
                         <p className={`text-2xl font-bold ${getConsensusColor(consensus)}`}>
-                          {(market.stats?.average_confidence || 0 * 100).toFixed(0)}%
+                          {((market.stats?.average_confidence || 0) * 100).toFixed(0)}%
                         </p>
                         <p className="text-xs text-gray-500 dark:text-gray-400">Avg Confidence</p>
                       </div>
