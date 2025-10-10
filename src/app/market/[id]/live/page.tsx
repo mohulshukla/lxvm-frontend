@@ -41,6 +41,8 @@ export default function LiveMarketMonitor() {
   const [marketStats, setMarketStats] = useState<MarketStats | null>(null)
   const [votes, setVotes] = useState<VoteWithUser[]>([])
   const [isCreator, setIsCreator] = useState(false)
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting')
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
 
   const marketId = params.id as string
   const decodedMarketId = decodeURIComponent(marketId)
@@ -122,7 +124,8 @@ export default function LiveMarketMonitor() {
   useEffect(() => {
     if (!market) return
 
-    console.log('Setting up live monitoring for market:', market.id)
+    console.log('🔴 Setting up live monitoring for market:', market.id)
+    setConnectionStatus('connecting')
 
     const channel = supabase
       .channel(`live-monitor-${market.id}`)
@@ -134,15 +137,37 @@ export default function LiveMarketMonitor() {
           filter: `market_id=eq.${market.id}`
         },
         (payload) => {
-          console.log('Live vote update:', payload)
+          console.log('🟢 Live vote update received:', payload)
+          setLastUpdate(new Date())
           fetchMarketStats()
           fetchVotes()
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log('📡 Subscription status:', status)
+        switch (status) {
+          case 'SUBSCRIBED':
+            setConnectionStatus('connected')
+            console.log('✅ Successfully connected to real-time updates')
+            break
+          case 'CHANNEL_ERROR':
+          case 'TIMED_OUT':
+            setConnectionStatus('error')
+            console.error('❌ Subscription error:', status)
+            break
+          case 'CLOSED':
+            setConnectionStatus('disconnected')
+            console.log('🔴 Subscription closed')
+            break
+          default:
+            console.log('📊 Subscription status:', status)
+        }
+      })
 
+    // Cleanup function
     return () => {
-      console.log('Cleaning up live monitoring subscription')
+      console.log('🧹 Cleaning up live monitoring subscription')
+      setConnectionStatus('disconnected')
       supabase.removeChannel(channel)
     }
   }, [market, fetchMarketStats, fetchVotes])
@@ -186,6 +211,39 @@ export default function LiveMarketMonitor() {
         return 'STRONG NO'
       default:
         return 'NEUTRAL'
+    }
+  }
+
+  const getConnectionStatusInfo = (status: typeof connectionStatus) => {
+    switch (status) {
+      case 'connected':
+        return {
+          text: 'LIVE',
+          color: 'bg-green-500',
+          textColor: 'text-green-600',
+          icon: '🟢'
+        }
+      case 'connecting':
+        return {
+          text: 'CONNECTING',
+          color: 'bg-yellow-500',
+          textColor: 'text-yellow-600',
+          icon: '🟡'
+        }
+      case 'disconnected':
+        return {
+          text: 'DISCONNECTED',
+          color: 'bg-gray-500',
+          textColor: 'text-gray-600',
+          icon: '⚪'
+        }
+      case 'error':
+        return {
+          text: 'ERROR',
+          color: 'bg-red-500',
+          textColor: 'text-red-600',
+          icon: '🔴'
+        }
     }
   }
 
@@ -237,12 +295,22 @@ export default function LiveMarketMonitor() {
                     <Badge variant={getConsensusVariant(consensus)} className="text-sm">
                       {market.status.toUpperCase()}
                     </Badge>
-                    <Badge variant="outline" className="text-sm">
+                    <Badge variant="outline" className={`text-sm ${getConnectionStatusInfo(connectionStatus).textColor}`}>
                       <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                        LIVE
+                        <div className={`w-2 h-2 rounded-full ${
+                          connectionStatus === 'connected' ? 'bg-green-500 animate-pulse' :
+                          connectionStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' :
+                          connectionStatus === 'error' ? 'bg-red-500 animate-pulse' :
+                          'bg-gray-500'
+                        }`}></div>
+                        {getConnectionStatusInfo(connectionStatus).text}
                       </div>
                     </Badge>
+                    {lastUpdate && connectionStatus === 'connected' && (
+                      <Badge variant="secondary" className="text-xs">
+                        Updated {lastUpdate.toLocaleTimeString()}
+                      </Badge>
+                    )}
                   </div>
                   <CardTitle className="text-4xl mb-4">
                     {market.title}
@@ -303,6 +371,25 @@ export default function LiveMarketMonitor() {
               </CardContent>
             )}
           </Card>
+
+          {/* Connection Status Card */}
+          {connectionStatus === 'error' && (
+            <Card className="mb-8 border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20">
+              <CardContent className="p-6">
+                <div className="flex items-center gap-3">
+                  <div className="text-2xl">🔴</div>
+                  <div>
+                    <h3 className="font-semibold text-red-800 dark:text-red-200">
+                      Real-time Connection Error
+                    </h3>
+                    <p className="text-sm text-red-600 dark:text-red-400">
+                      Unable to connect to live updates. Please check your internet connection and refresh the page.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <div className="grid lg:grid-cols-2 gap-8">
             {/* Consensus Visualization */}
@@ -481,6 +568,19 @@ export default function LiveMarketMonitor() {
             >
               <Share2 className="h-4 w-4" />
               Share Market
+            </Button>
+            <Button
+              size="lg"
+              variant="secondary"
+              onClick={() => {
+                console.log('🔄 Manual refresh triggered')
+                fetchMarketStats()
+                fetchVotes()
+              }}
+              className="gap-2"
+            >
+              <Activity className="h-4 w-4" />
+              Refresh Data
             </Button>
           </div>
         </div>
