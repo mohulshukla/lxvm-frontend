@@ -1,18 +1,19 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { useParams, useRouter } from 'next/navigation'
-import Link from 'next/link'
-import { useAccount } from 'wagmi'
-import { supabase, type PredictionMarket, type Vote } from '@/lib/supabase'
 import { Navigation } from '@/components/navigation'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
+import { VoterNetworkGraph } from '@/components/voter-network-graph'
+import { supabase, type PredictionMarket, type Vote } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
-import { TrendingUp, Users, Activity, Target, Share2, ArrowLeft } from 'lucide-react'
+import { Activity, Network, Share2, Target, Users } from 'lucide-react'
+import Link from 'next/link'
+import { useParams, useRouter } from 'next/navigation'
+import { useCallback, useEffect, useState } from 'react'
+import { useAccount } from 'wagmi'
 
 interface MarketStats {
   total_votes: number
@@ -44,20 +45,25 @@ export default function LiveMarketMonitor() {
 
   const marketId = params.id as string
   const decodedMarketId = decodeURIComponent(marketId)
+  // Convert to shareable_id (first 12 characters if it's a full market_id)
+  const shareableId = decodedMarketId.length > 12 ? decodedMarketId.substring(0, 12) : decodedMarketId
 
   const fetchMarket = useCallback(async () => {
     try {
+      console.log('Fetching market with shareable_id:', shareableId)
       const { data, error } = await supabase
         .from('prediction_markets')
         .select('*')
-        .eq('shareable_id', decodedMarketId)
+        .eq('shareable_id', shareableId)
         .single()
 
       if (error || !data) {
+        console.error('Market not found in Supabase:', error)
         setError('Market not found')
         return
       }
 
+      console.log('Market found:', data)
       setMarket(data)
       setIsCreator(address === data.created_by)
     } catch (err) {
@@ -66,7 +72,7 @@ export default function LiveMarketMonitor() {
     } finally {
       setLoading(false)
     }
-  }, [marketId, decodedMarketId, address])
+  }, [shareableId, address])
 
   const fetchMarketStats = useCallback(async () => {
     if (!market) return
@@ -303,6 +309,26 @@ export default function LiveMarketMonitor() {
               </CardContent>
             )}
           </Card>
+
+          {/* Network Graph Visualization */}
+          {votes.length > 0 && (
+            <Card className="mb-8">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Network className="h-5 w-5" />
+                  Voter Network Graph
+                </CardTitle>
+                <CardDescription>
+                  Green nodes = Yes votes, Red nodes = No votes. Brightness indicates confidence level.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[500px] w-full border rounded-lg overflow-hidden">
+                  <VoterNetworkGraph votes={votes} />
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <div className="grid lg:grid-cols-2 gap-8">
             {/* Consensus Visualization */}
