@@ -220,7 +220,7 @@ export default function MarketsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-gray-900 dark:to-slate-900">
       <nav className="flex justify-between items-center p-6">
         <div className="flex items-center gap-6">
           <Link href="/" className="text-2xl font-bold text-gray-900 dark:text-white">
@@ -251,7 +251,7 @@ export default function MarketsPage() {
           </div>
 
           {/* Filters and Search */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-8">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 mb-8 border border-gray-200 dark:border-gray-700">
             <div className="grid md:grid-cols-3 gap-4">
               {/* Search */}
               <div>
@@ -336,7 +336,7 @@ export default function MarketsPage() {
               {filteredAndSortedMarkets.map((market) => {
                 const consensus = getConsensusDirection(market.stats)
                 return (
-                  <div key={market.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 hover:shadow-xl transition-shadow">
+                  <div key={market.id} className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 hover:shadow-xl transition-shadow border border-gray-200 dark:border-gray-700">
                     {/* Header */}
                     <div className="flex items-start justify-between mb-4">
                       <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(market.status)}`}>
@@ -405,6 +405,13 @@ export default function MarketsPage() {
                       >
                         {market.status === 'active' ? 'Vote Now' : 'View Results'}
                       </Link>
+                      <Link
+                        href={`/market/${encodeURIComponent(market.shareable_id)}/live`}
+                        className="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center gap-1"
+                      >
+                        <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                        LIVE
+                      </Link>
                       {isConnected && market.created_by === address && (
                         <button
                           onClick={() => {
@@ -433,7 +440,7 @@ export default function MarketsPage() {
 
           {/* Summary Stats */}
           {markets.length > 0 && (
-            <div className="mt-12 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+            <div className="mt-12 bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 border border-gray-200 dark:border-gray-700">
               <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
                 Market Summary
               </h3>

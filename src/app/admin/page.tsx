@@ -255,17 +255,26 @@ export default function AdminDashboard() {
                         {typeof window !== 'undefined' ? window.location.origin : ''}/market/{createdMarket.shareable_id}
                       </code>
                     </div>
-                    <button
-                      onClick={() => {
-                        if (typeof window !== 'undefined') {
-                          navigator.clipboard.writeText(`${window.location.origin}/market/${createdMarket.shareable_id}`)
-                          alert('Link copied to clipboard!')
-                        }
-                      }}
-                      className="mt-2 bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
-                    >
-                      Copy Link
-                    </button>
+                    <div className="flex gap-2 mt-2">
+                      <button
+                        onClick={() => {
+                          if (typeof window !== 'undefined') {
+                            navigator.clipboard.writeText(`${window.location.origin}/market/${createdMarket.shareable_id}`)
+                            alert('Link copied to clipboard!')
+                          }
+                        }}
+                        className="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                      >
+                        Copy Link
+                      </button>
+                      <Link
+                        href={`/market/${encodeURIComponent(createdMarket.shareable_id)}/live`}
+                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors text-center flex items-center justify-center gap-2"
+                      >
+                        <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                        LIVE
+                      </Link>
+                    </div>
                   </div>
 
                   <div>
