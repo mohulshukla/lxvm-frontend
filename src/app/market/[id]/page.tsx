@@ -20,6 +20,7 @@ export default function MarketPage() {
   const [marketStats, setMarketStats] = useState<any>(null)
 
   const marketId = params.id as string
+  const decodedMarketId = decodeURIComponent(marketId)
 
   useEffect(() => {
     if (marketId) {
@@ -34,21 +35,66 @@ export default function MarketPage() {
     }
   }, [market, address])
 
+  // Real-time updates for market stats
+  useEffect(() => {
+    if (!market) return
+
+    console.log('Setting up real-time subscription for market:', market.id)
+
+    const channel = supabase
+      .channel(`market-${market.id}`)
+      .on('postgres_changes', 
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'votes',
+          filter: `market_id=eq.${market.id}`
+        }, 
+        (payload) => {
+          console.log('Real-time vote update:', payload)
+          // Refresh market stats when votes change
+          fetchMarketStats()
+          // Refresh user vote if it's the current user
+          if (address && payload.new?.voter_address === address) {
+            fetchUserVote()
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      console.log('Cleaning up real-time subscription')
+      supabase.removeChannel(channel)
+    }
+  }, [market, address])
+
   const fetchMarket = async () => {
     try {
+      console.log('Looking for market with shareable_id (raw):', marketId)
+      console.log('Looking for market with shareable_id (decoded):', decodedMarketId)
+      
       const { data, error } = await supabase
         .from('prediction_markets')
         .select('*')
-        .eq('shareable_id', marketId)
+        .eq('shareable_id', decodedMarketId)
         .single()
 
+      console.log('Market query result:', { data, error })
+
       if (error) {
+        console.error('Market not found error:', error)
+        setError(`Market not found: ${error.message}`)
+        return
+      }
+
+      if (!data) {
         setError('Market not found')
         return
       }
 
       setMarket(data)
     } catch (err) {
+      console.error('Error loading market:', err)
       setError('Error loading market')
     } finally {
       setLoading(false)
@@ -114,6 +160,9 @@ export default function MarketPage() {
 
       if (userError) {
         console.error('Error creating user:', userError)
+        // Continue anyway - user might already exist
+      } else {
+        console.log('User created/updated successfully for voting')
       }
 
       // Cast the vote

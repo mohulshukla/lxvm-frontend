@@ -12,6 +12,7 @@ export default function AdminDashboard() {
   const [threshold, setThreshold] = useState(0.1)
   const [isCreating, setIsCreating] = useState(false)
   const [createdMarket, setCreatedMarket] = useState<any>(null)
+  const [marketStats, setMarketStats] = useState<any>(null)
 
   const handleCreateMarket = async () => {
     if (!isConnected || !address) {
@@ -34,6 +35,9 @@ export default function AdminDashboard() {
 
       if (userError) {
         console.error('Error creating user:', userError)
+        // Continue anyway - user might already exist
+      } else {
+        console.log('User created/updated successfully')
       }
 
       // Create the market using our database function
@@ -67,11 +71,58 @@ export default function AdminDashboard() {
       setTitle('')
       setDescription('')
       setThreshold(0.1)
+      
+      // Set up real-time updates for the created market
+      if (marketData) {
+        setupRealtimeUpdates(marketData.id)
+      }
     } catch (error) {
       console.error('Unexpected error:', error)
       alert('An unexpected error occurred')
     } finally {
       setIsCreating(false)
+    }
+  }
+
+  const setupRealtimeUpdates = (marketId: string) => {
+    console.log('Setting up real-time updates for market:', marketId)
+    
+    const channel = supabase
+      .channel(`admin-market-${marketId}`)
+      .on('postgres_changes', 
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'votes',
+          filter: `market_id=eq.${marketId}`
+        }, 
+        (payload) => {
+          console.log('Real-time vote update in admin:', payload)
+          fetchMarketStats(marketId)
+        }
+      )
+      .subscribe()
+
+    return () => {
+      console.log('Cleaning up admin real-time subscription')
+      supabase.removeChannel(channel)
+    }
+  }
+
+  const fetchMarketStats = async (marketId?: string) => {
+    const targetMarketId = marketId || createdMarket?.id
+    if (!targetMarketId) return
+
+    try {
+      const { data, error } = await supabase.rpc('get_market_stats', {
+        market_uuid: targetMarketId
+      })
+
+      if (data && data.length > 0) {
+        setMarketStats(data[0])
+      }
+    } catch (err) {
+      console.error('Error fetching market stats:', err)
     }
   }
 
@@ -215,6 +266,35 @@ export default function AdminDashboard() {
                     <h3 className="font-medium text-gray-900 dark:text-white mb-2">Market ID:</h3>
                     <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{createdMarket.shareable_id}</p>
                   </div>
+
+                  {/* Real-time Statistics */}
+                  {marketStats && (
+                    <div className="border-t pt-6 mt-6">
+                      <h3 className="font-medium text-gray-900 dark:text-white mb-4">
+                        Live Statistics
+                      </h3>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="text-center">
+                          <p className="text-2xl font-bold text-blue-600">{marketStats.total_votes}</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">Total Votes</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-2xl font-bold text-green-600">{marketStats.yes_votes}</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">Yes Votes</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-2xl font-bold text-red-600">{marketStats.no_votes}</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">No Votes</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-2xl font-bold text-purple-600">
+                            {(marketStats.average_confidence * 100).toFixed(1)}%
+                          </p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">Avg Confidence</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
