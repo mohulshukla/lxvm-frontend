@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAccount } from 'wagmi'
 import { supabase, type PredictionMarket } from '@/lib/supabase'
@@ -310,11 +311,14 @@ export default function AdminDashboard() {
                 Manage Markets
               </h2>
               <p className="text-gray-600 dark:text-gray-300 mb-4">
-                View and manage your created markets, monitor voting progress, and resolve markets.
+                View and manage all markets, monitor voting progress, and resolve markets.
               </p>
-              <button className="w-full bg-gray-600 hover:bg-gray-700 text-white font-medium py-3 px-6 rounded-lg transition-colors">
+              <Link
+                href="/markets"
+                className="block w-full bg-gray-600 hover:bg-gray-700 text-white font-medium py-3 px-6 rounded-lg transition-colors text-center"
+              >
                 View All Markets
-              </button>
+              </Link>
             </div>
           </div>
         </div>

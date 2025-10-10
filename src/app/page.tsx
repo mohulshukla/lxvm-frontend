@@ -7,9 +7,19 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
       <nav className="flex justify-between items-center p-6">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-          Prediction Market
-        </h1>
+        <div className="flex items-center gap-6">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+            Prediction Market
+          </h1>
+          <div className="hidden md:flex gap-4">
+            <Link href="/markets" className="text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+              Markets
+            </Link>
+            <Link href="/admin" className="text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+              Admin
+            </Link>
+          </div>
+        </div>
         <ConnectButton />
       </nav>
       
@@ -47,14 +57,15 @@ export default function Home() {
               Vote on prediction markets using your wallet with confidence levels from 0 to 1.
             </p>
             <div className="space-y-4">
-              <input
-                type="text"
-                placeholder="Enter shareable link or market ID"
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-              />
-              <button className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3 px-6 rounded-lg transition-colors">
-                Join Market
-              </button>
+              <Link
+                href="/markets"
+                className="block w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3 px-6 rounded-lg transition-colors text-center"
+              >
+                Browse All Markets
+              </Link>
+              <div className="text-center text-sm text-gray-500 dark:text-gray-400">
+                Or use a shareable link to join a specific market
+              </div>
             </div>
           </div>
         </div>
