@@ -2,9 +2,16 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAccount } from 'wagmi'
 import { supabase, type PredictionMarket } from '@/lib/supabase'
+import { Navigation } from '@/components/navigation'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { Progress } from '@/components/ui/progress'
+import { cn } from '@/lib/utils'
+import { Search, TrendingUp, Users, Target } from 'lucide-react'
 
 interface MarketWithStats extends PredictionMarket {
   stats?: {
@@ -30,7 +37,6 @@ export default function MarketsPage() {
     try {
       setLoading(true)
       
-      // Fetch all markets
       const { data: marketsData, error: marketsError } = await supabase
         .from('prediction_markets')
         .select('*')
@@ -47,7 +53,6 @@ export default function MarketsPage() {
         return
       }
 
-      // Fetch statistics for all markets
       const marketsWithStats = await Promise.all(
         marketsData.map(async (market) => {
           try {
@@ -93,11 +98,8 @@ export default function MarketsPage() {
     }
   }, [])
 
-  // Set up real-time updates for all markets
   useEffect(() => {
     if (markets.length === 0) return
-
-    console.log('Setting up real-time updates for all markets')
 
     const channels = markets.map(market => {
       return supabase
@@ -111,7 +113,6 @@ export default function MarketsPage() {
           },
           (payload) => {
             console.log('Real-time vote update for market:', market.id, payload)
-            // Refresh stats for the specific market
             refreshMarketStats(market.id)
           }
         )
@@ -119,7 +120,6 @@ export default function MarketsPage() {
     })
 
     return () => {
-      console.log('Cleaning up real-time subscriptions')
       channels.forEach(channel => supabase.removeChannel(channel))
     }
   }, [markets])
@@ -146,13 +146,10 @@ export default function MarketsPage() {
     fetchMarkets()
   }, [fetchMarkets])
 
-  // Filter and sort markets
   const filteredAndSortedMarkets = markets
     .filter(market => {
-      // Filter by status
       if (filter !== 'all' && market.status !== filter) return false
       
-      // Filter by search term
       if (searchTerm) {
         const searchLower = searchTerm.toLowerCase()
         return (
@@ -175,16 +172,16 @@ export default function MarketsPage() {
       }
     })
 
-  const getStatusColor = (status: string) => {
+  const getStatusVariant = (status: string) => {
     switch (status) {
       case 'active':
-        return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+        return 'default' as const
       case 'ended':
-        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+        return 'secondary' as const
       case 'resolved':
-        return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+        return 'outline' as const
       default:
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
+        return 'secondary' as const
     }
   }
 
@@ -197,242 +194,209 @@ export default function MarketsPage() {
     return 'neutral'
   }
 
-  const getConsensusColor = (direction: string) => {
-    switch (direction) {
-      case 'yes':
-        return 'text-green-600 dark:text-green-400'
-      case 'no':
-        return 'text-red-600 dark:text-red-400'
-      default:
-        return 'text-gray-600 dark:text-gray-400'
-    }
-  }
-
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-background to-muted/20 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-300">Loading markets...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading markets...</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-gray-900 dark:to-slate-900">
-      <nav className="flex justify-between items-center p-6">
-        <div className="flex items-center gap-6">
-          <Link href="/" className="text-2xl font-bold text-gray-900 dark:text-white">
-            Prediction Market
-          </Link>
-          <div className="hidden md:flex gap-4">
-            <Link href="/admin" className="text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-              Admin
-            </Link>
-            <Link href="/markets" className="text-blue-600 dark:text-blue-400 font-medium">
-              Markets
-            </Link>
-          </div>
-        </div>
-        <ConnectButton />
-      </nav>
+    <div className="min-h-screen bg-gradient-to-br from-background to-muted/20">
+      <Navigation />
       
       <div className="container mx-auto px-6 py-8">
         <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
+            <h1 className="text-4xl font-bold text-foreground mb-4">
               Prediction Markets
             </h1>
-            <p className="text-gray-600 dark:text-gray-300">
+            <p className="text-muted-foreground">
               Browse and participate in prediction markets. Vote with confidence levels and see real-time results.
             </p>
           </div>
 
           {/* Filters and Search */}
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 mb-8 border border-gray-200 dark:border-gray-700">
-            <div className="grid md:grid-cols-3 gap-4">
-              {/* Search */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Search Markets
-                </label>
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Search by title or description..."
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                />
-              </div>
+          <Card className="mb-8">
+            <CardContent className="p-6">
+              <div className="grid md:grid-cols-3 gap-4">
+                {/* Search */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">
+                    Search Markets
+                  </label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                    <Input
+                      placeholder="Search by title or description..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
 
-              {/* Status Filter */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Filter by Status
-                </label>
-                <select
-                  value={filter}
-                  onChange={(e) => setFilter(e.target.value as any)}
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                >
-                  <option value="all">All Markets</option>
-                  <option value="active">Active</option>
-                  <option value="ended">Ended</option>
-                  <option value="resolved">Resolved</option>
-                </select>
-              </div>
+                {/* Status Filter */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">
+                    Filter by Status
+                  </label>
+                  <select
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value as any)}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <option value="all">All Markets</option>
+                    <option value="active">Active</option>
+                    <option value="ended">Ended</option>
+                    <option value="resolved">Resolved</option>
+                  </select>
+                </div>
 
-              {/* Sort By */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Sort By
-                </label>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as any)}
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                >
-                  <option value="created">Most Recent</option>
-                  <option value="votes">Most Votes</option>
-                  <option value="confidence">Highest Confidence</option>
-                </select>
+                {/* Sort By */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">
+                    Sort By
+                  </label>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as any)}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <option value="created">Most Recent</option>
+                    <option value="votes">Most Votes</option>
+                    <option value="confidence">Highest Confidence</option>
+                  </select>
+                </div>
               </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
           {/* Markets Grid */}
           {error ? (
-            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6 text-center">
-              <p className="text-red-600 dark:text-red-400">{error}</p>
-              <button
-                onClick={fetchMarkets}
-                className="mt-4 bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
-              >
-                Try Again
-              </button>
-            </div>
+            <Card className="border-destructive">
+              <CardContent className="p-6 text-center">
+                <p className="text-destructive mb-4">{error}</p>
+                <Button onClick={fetchMarkets} variant="outline">
+                  Try Again
+                </Button>
+              </CardContent>
+            </Card>
           ) : filteredAndSortedMarkets.length === 0 ? (
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-12 text-center">
-              <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                No Markets Found
-              </h3>
-              <p className="text-gray-600 dark:text-gray-300 mb-6">
-                {searchTerm || filter !== 'all' 
-                  ? 'No markets match your current filters. Try adjusting your search or filters.'
-                  : 'No prediction markets have been created yet.'
-                }
-              </p>
-              <Link
-                href="/admin"
-                className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-6 rounded-lg transition-colors"
-              >
-                Create First Market
-              </Link>
-            </div>
+            <Card>
+              <CardContent className="p-12 text-center">
+                <h3 className="text-xl font-semibold text-foreground mb-4">
+                  No Markets Found
+                </h3>
+                <p className="text-muted-foreground mb-6">
+                  {searchTerm || filter !== 'all' 
+                    ? 'No markets match your current filters. Try adjusting your search or filters.'
+                    : 'No prediction markets have been created yet.'
+                  }
+                </p>
+                <Link href="/admin">
+                  <Button>
+                    Create First Market
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
           ) : (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredAndSortedMarkets.map((market) => {
                 const consensus = getConsensusDirection(market.stats)
                 return (
-                  <div key={market.id} className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 hover:shadow-xl transition-shadow border border-gray-200 dark:border-gray-700">
-                    {/* Header */}
-                    <div className="flex items-start justify-between mb-4">
-                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(market.status)}`}>
-                        {market.status.toUpperCase()}
-                      </span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">
-                        {new Date(market.created_at).toLocaleDateString()}
-                      </span>
-                    </div>
-
-                    {/* Title */}
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3 line-clamp-2">
-                      {market.title}
-                    </h3>
-
-                    {/* Description */}
-                    <p className="text-gray-600 dark:text-gray-300 mb-4 line-clamp-3">
-                      {market.description}
-                    </p>
-
-                    {/* Statistics */}
-                    <div className="grid grid-cols-2 gap-4 mb-4">
-                      <div className="text-center">
-                        <p className="text-2xl font-bold text-blue-600">{market.stats?.total_votes || 0}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Total Votes</p>
+                  <Card key={market.id} className="hover:shadow-lg transition-shadow">
+                    <CardHeader>
+                      <div className="flex items-start justify-between">
+                        <Badge variant={getStatusVariant(market.status)}>
+                          {market.status.toUpperCase()}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(market.created_at).toLocaleDateString()}
+                        </span>
                       </div>
-                      <div className="text-center">
-                        <p className={`text-2xl font-bold ${getConsensusColor(consensus)}`}>
-                          {((market.stats?.average_confidence || 0) * 100).toFixed(0)}%
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Avg Confidence</p>
-                      </div>
-                    </div>
+                      <CardTitle className="line-clamp-2">
+                        {market.title}
+                      </CardTitle>
+                      <CardDescription className="line-clamp-3">
+                        {market.description}
+                      </CardDescription>
+                    </CardHeader>
 
-                    {/* Vote Breakdown */}
-                    {market.stats && market.stats.total_votes > 0 && (
-                      <div className="mb-4">
-                        <div className="flex justify-between text-sm mb-1">
-                          <span className="text-green-600 dark:text-green-400">
-                            Yes: {market.stats.yes_votes}
-                          </span>
-                          <span className="text-red-600 dark:text-red-400">
-                            No: {market.stats.no_votes}
-                          </span>
+                    <CardContent className="space-y-4">
+                      {/* Statistics */}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="text-center">
+                          <div className="text-2xl font-bold text-primary">{market.stats?.total_votes || 0}</div>
+                          <div className="text-xs text-muted-foreground">Total Votes</div>
                         </div>
-                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                          <div 
-                            className="bg-gradient-to-r from-green-500 to-red-500 h-2 rounded-full"
-                            style={{
-                              background: `linear-gradient(to right, 
-                                green 0%, 
-                                green ${(market.stats.yes_votes / market.stats.total_votes) * 100}%, 
-                                red ${(market.stats.yes_votes / market.stats.total_votes) * 100}%, 
-                                red 100%)`
-                            }}
+                        <div className="text-center">
+                          <div className="text-2xl font-bold text-green-600">
+                            {((market.stats?.average_confidence || 0) * 100).toFixed(0)}%
+                          </div>
+                          <div className="text-xs text-muted-foreground">Avg Confidence</div>
+                        </div>
+                      </div>
+
+                      {/* Vote Breakdown */}
+                      {market.stats && market.stats.total_votes > 0 && (
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-green-600">
+                              Yes: {market.stats.yes_votes}
+                            </span>
+                            <span className="text-red-600">
+                              No: {market.stats.no_votes}
+                            </span>
+                          </div>
+                          <Progress 
+                            value={(market.stats.yes_votes / market.stats.total_votes) * 100}
+                            className="h-2"
                           />
                         </div>
-                      </div>
-                    )}
-
-                    {/* Actions */}
-                    <div className="flex gap-2">
-                      <Link
-                        href={`/market/${encodeURIComponent(market.shareable_id)}`}
-                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors text-center"
-                      >
-                        {market.status === 'active' ? 'Vote Now' : 'View Results'}
-                      </Link>
-                      <Link
-                        href={`/market/${encodeURIComponent(market.shareable_id)}/live`}
-                        className="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center gap-1"
-                      >
-                        <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
-                        LIVE
-                      </Link>
-                      {isConnected && market.created_by === address && (
-                        <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(`${window.location.origin}/market/${market.shareable_id}`)
-                            alert('Shareable link copied to clipboard!')
-                          }}
-                          className="bg-gray-600 hover:bg-gray-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
-                        >
-                          Share
-                        </button>
                       )}
-                    </div>
 
-                    {/* Live indicator */}
-                    {market.status === 'active' && (
-                      <div className="flex items-center gap-2 mt-3 text-sm text-green-600 dark:text-green-400">
-                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                        Live updates
+                      {/* Actions */}
+                      <div className="flex gap-2">
+                        <Link href={`/market/${encodeURIComponent(market.shareable_id)}`} className="flex-1">
+                          <Button className="w-full" variant={market.status === 'active' ? 'default' : 'outline'}>
+                            {market.status === 'active' ? 'Vote Now' : 'View Results'}
+                          </Button>
+                        </Link>
+                        <Link href={`/market/${encodeURIComponent(market.shareable_id)}/live`}>
+                          <Button variant="secondary" size="icon">
+                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                          </Button>
+                        </Link>
+                        {isConnected && market.created_by === address && (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => {
+                              navigator.clipboard.writeText(`${window.location.origin}/market/${market.shareable_id}`)
+                              alert('Shareable link copied to clipboard!')
+                            }}
+                          >
+                            📤
+                          </Button>
+                        )}
                       </div>
-                    )}
-                  </div>
+
+                      {/* Live indicator */}
+                      {market.status === 'active' && (
+                        <div className="flex items-center gap-2 text-sm text-green-600">
+                          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                          Live updates
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
                 )
               })}
             </div>
@@ -440,35 +404,40 @@ export default function MarketsPage() {
 
           {/* Summary Stats */}
           {markets.length > 0 && (
-            <div className="mt-12 bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 border border-gray-200 dark:border-gray-700">
-              <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                Market Summary
-              </h3>
-              <div className="grid md:grid-cols-4 gap-6">
-                <div className="text-center">
-                  <p className="text-3xl font-bold text-blue-600">{markets.length}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Total Markets</p>
+            <Card className="mt-12">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5" />
+                  Market Summary
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid md:grid-cols-4 gap-6">
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-primary mb-2">{markets.length}</div>
+                    <div className="text-sm text-muted-foreground">Total Markets</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-green-600 mb-2">
+                      {markets.filter(m => m.status === 'active').length}
+                    </div>
+                    <div className="text-sm text-muted-foreground">Active</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-blue-600 mb-2">
+                      {markets.reduce((sum, m) => sum + (m.stats?.total_votes || 0), 0)}
+                    </div>
+                    <div className="text-sm text-muted-foreground">Total Votes</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-orange-600 mb-2">
+                      {markets.filter(m => m.stats && m.stats.total_votes > 0).length}
+                    </div>
+                    <div className="text-sm text-muted-foreground">With Votes</div>
+                  </div>
                 </div>
-                <div className="text-center">
-                  <p className="text-3xl font-bold text-green-600">
-                    {markets.filter(m => m.status === 'active').length}
-                  </p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Active</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-3xl font-bold text-purple-600">
-                    {markets.reduce((sum, m) => sum + (m.stats?.total_votes || 0), 0)}
-                  </p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Total Votes</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-3xl font-bold text-orange-600">
-                    {markets.filter(m => m.stats && m.stats.total_votes > 0).length}
-                  </p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">With Votes</p>
-                </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           )}
         </div>
       </div>

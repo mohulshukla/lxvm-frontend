@@ -102,7 +102,26 @@ CREATE OR REPLACE FUNCTION cast_vote(
 RETURNS UUID AS $$
 DECLARE
     vote_id UUID;
+    calculated_vote_type TEXT;
 BEGIN
+    -- Validate that prediction is not exactly 0.5
+    IF vote_prediction = 0.5 THEN
+        RAISE EXCEPTION 'Cannot vote at exactly 50%% confidence. Please choose a side.';
+    END IF;
+    
+    -- Calculate the correct vote type based on prediction
+    IF vote_prediction > 0.5 THEN
+        calculated_vote_type := 'yes';
+    ELSE
+        calculated_vote_type := 'no';
+    END IF;
+    
+    -- Ensure vote_type matches the prediction
+    IF vote_type_val != calculated_vote_type THEN
+        RAISE EXCEPTION 'Vote type does not match prediction. Prediction %.1f%% should be %s vote.', 
+            vote_prediction * 100, calculated_vote_type;
+    END IF;
+    
     -- Insert or update the vote
     INSERT INTO votes (market_id, voter_address, prediction, vote_type, evidence)
     VALUES (market_uuid, voter_addr, vote_prediction, vote_type_val, vote_evidence)
