@@ -13,6 +13,7 @@ import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import { TrendingUp, Users, Activity, Target, Share2, ArrowLeft } from 'lucide-react'
+import { VoterNetworkGraph } from '@/components/voter-network-graph'
 
 interface MarketStats {
   total_votes: number
@@ -477,6 +478,44 @@ export default function LiveMarketMonitor() {
               </CardContent>
             </Card>
           )}
+
+          {/* Voter Network Graph */}
+          <Card className="mb-8">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Activity className="h-5 w-5" />
+                Voter Network
+              </CardTitle>
+              <CardDescription>
+                Interactive network showing voter relationships. Green = Yes votes, Red = No votes. 
+                Opacity = confidence level. Moderate voters bridge between camps.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div style={{ height: '500px' }}>
+                <VoterNetworkGraph votes={votes} />
+              </div>
+              {/* Legend */}
+              <div className="mt-4 flex flex-wrap gap-4 text-xs text-muted-foreground">
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 rounded-full" style={{ background: 'rgba(34, 197, 94, 1)' }}></div>
+                  <span>Strong Yes (&gt;70%)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 rounded-full" style={{ background: 'rgba(34, 197, 94, 0.5)' }}></div>
+                  <span>Weak Yes</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 rounded-full" style={{ background: 'rgba(239, 68, 68, 0.7)' }}></div>
+                  <span>Moderate (Bridge)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 rounded-full" style={{ background: 'rgba(239, 68, 68, 1)' }}></div>
+                  <span>Strong No (&lt;30%)</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
           <div className="grid lg:grid-cols-2 gap-8">
             {/* Consensus Visualization */}
