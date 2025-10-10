@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAccount } from 'wagmi'
-import { supabase } from '@/lib/supabase'
+import { supabase, type PredictionMarket } from '@/lib/supabase'
 
 export default function AdminDashboard() {
   const { address, isConnected } = useAccount()
@@ -11,8 +11,13 @@ export default function AdminDashboard() {
   const [description, setDescription] = useState('')
   const [threshold, setThreshold] = useState(0.1)
   const [isCreating, setIsCreating] = useState(false)
-  const [createdMarket, setCreatedMarket] = useState<any>(null)
-  const [marketStats, setMarketStats] = useState<any>(null)
+  const [createdMarket, setCreatedMarket] = useState<PredictionMarket | null>(null)
+  const [marketStats, setMarketStats] = useState<{
+    total_votes: number
+    yes_votes: number
+    no_votes: number
+    average_confidence: number
+  } | null>(null)
 
   const handleCreateMarket = async () => {
     if (!isConnected || !address) {
@@ -114,7 +119,7 @@ export default function AdminDashboard() {
     if (!targetMarketId) return
 
     try {
-      const { data, error } = await supabase.rpc('get_market_stats', {
+      const { data } = await supabase.rpc('get_market_stats', {
         market_uuid: targetMarketId
       })
 

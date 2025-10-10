@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
+import Link from 'next/link'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAccount } from 'wagmi'
 import { supabase, type PredictionMarket, type Vote } from '@/lib/supabase'
@@ -17,7 +18,12 @@ export default function MarketPage() {
   const [voteType, setVoteType] = useState<'yes' | 'no'>('yes')
   const [evidence, setEvidence] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [marketStats, setMarketStats] = useState<any>(null)
+  const [marketStats, setMarketStats] = useState<{
+    total_votes: number
+    yes_votes: number
+    no_votes: number
+    average_confidence: number
+  } | null>(null)
 
   const marketId = params.id as string
   const decodedMarketId = decodeURIComponent(marketId)
@@ -26,14 +32,14 @@ export default function MarketPage() {
     if (marketId) {
       fetchMarket()
     }
-  }, [marketId])
+  }, [marketId, fetchMarket])
 
   useEffect(() => {
     if (market && address) {
       fetchUserVote()
       fetchMarketStats()
     }
-  }, [market, address])
+  }, [market, address, fetchUserVote, fetchMarketStats])
 
   // Real-time updates for market stats
   useEffect(() => {
@@ -66,9 +72,9 @@ export default function MarketPage() {
       console.log('Cleaning up real-time subscription')
       supabase.removeChannel(channel)
     }
-  }, [market, address])
+  }, [market, address, fetchMarketStats, fetchUserVote])
 
-  const fetchMarket = async () => {
+  const fetchMarket = useCallback(async () => {
     try {
       console.log('Looking for market with shareable_id (raw):', marketId)
       console.log('Looking for market with shareable_id (decoded):', decodedMarketId)
@@ -99,9 +105,9 @@ export default function MarketPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [marketId, decodedMarketId])
 
-  const fetchUserVote = async () => {
+  const fetchUserVote = useCallback(async () => {
     if (!market || !address) return
 
     try {
@@ -121,13 +127,13 @@ export default function MarketPage() {
     } catch (err) {
       console.error('Error fetching user vote:', err)
     }
-  }
+  }, [market, address])
 
-  const fetchMarketStats = async () => {
+  const fetchMarketStats = useCallback(async () => {
     if (!market) return
 
     try {
-      const { data, error } = await supabase.rpc('get_market_stats', {
+      const { data } = await supabase.rpc('get_market_stats', {
         market_uuid: market.id
       })
 
@@ -137,7 +143,7 @@ export default function MarketPage() {
     } catch (err) {
       console.error('Error fetching market stats:', err)
     }
-  }
+  }, [market])
 
   const handleSubmitVote = async () => {
     if (!isConnected || !address || !market) {
@@ -166,7 +172,7 @@ export default function MarketPage() {
       }
 
       // Cast the vote
-      const { data, error } = await supabase.rpc('cast_vote', {
+      const { error } = await supabase.rpc('cast_vote', {
         market_uuid: market.id,
         voter_addr: address,
         vote_prediction: prediction,
@@ -212,14 +218,14 @@ export default function MarketPage() {
             Market Not Found
           </h2>
           <p className="text-gray-600 dark:text-gray-300 mb-6">
-            The market you're looking for doesn't exist or has been removed.
+            The market you&apos;re looking for doesn&apos;t exist or has been removed.
           </p>
-          <a
+          <Link
             href="/"
             className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-6 rounded-lg transition-colors"
           >
             Go Home
-          </a>
+          </Link>
         </div>
       </div>
     )
