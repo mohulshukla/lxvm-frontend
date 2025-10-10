@@ -14,10 +14,10 @@ export default function Home() {
       <main className="container mx-auto px-6 py-12">
         <div className="text-center mb-12">
           <Badge variant="secondary" className="mb-4">
-            Decentralized Prediction Markets
+            Market Resolution with EigenCloud
           </Badge>
           <h1 className="text-5xl font-bold text-foreground mb-6">
-            Predict the Future
+            Vote on the Outcome
           </h1>
           <p className="text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
             Create and participate in prediction markets with real-time voting, confidence levels, and instant results.
