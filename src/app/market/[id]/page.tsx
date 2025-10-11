@@ -1,24 +1,24 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { useParams } from 'next/navigation'
-import Link from 'next/link'
-import { useAccount } from 'wagmi'
-import { supabase, type PredictionMarket, type Vote } from '@/lib/supabase'
 import { Navigation } from '@/components/navigation'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Progress } from '@/components/ui/progress'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
+import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
-import { cn } from '@/lib/utils'
-import { Target, TrendingUp, Users, Activity, Share2, ArrowLeft } from 'lucide-react'
+import { marketAPI, signatureHelpers, type Market, type MarketStats, type Vote } from '@/lib/apiService'
+import { Activity, ArrowLeft, Share2, Target, TrendingUp } from 'lucide-react'
+import Link from 'next/link'
+import { useParams } from 'next/navigation'
+import { useCallback, useEffect, useState } from 'react'
+import { useAccount, useWalletClient } from 'wagmi'
 
 export default function MarketPage() {
   const params = useParams()
   const { address, isConnected } = useAccount()
-  const [market, setMarket] = useState<PredictionMarket | null>(null)
+  const { data: walletClient } = useWalletClient()
+  const [market, setMarket] = useState<Market | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [userVote, setUserVote] = useState<Vote | null>(null)
@@ -26,65 +26,38 @@ export default function MarketPage() {
   const [voteType, setVoteType] = useState<'yes' | 'no'>('yes')
   const [evidence, setEvidence] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [marketStats, setMarketStats] = useState<{
-    total_votes: number
-    yes_votes: number
-    no_votes: number
-    average_confidence: number
-  } | null>(null)
+  const [marketStats, setMarketStats] = useState<MarketStats | null>(null)
 
   const marketId = params.id as string
   const decodedMarketId = decodeURIComponent(marketId)
 
   const fetchMarket = useCallback(async () => {
     try {
-      console.log('Looking for market with shareable_id (raw):', marketId)
-      console.log('Looking for market with shareable_id (decoded):', decodedMarketId)
-      
-      const { data, error } = await supabase
-        .from('prediction_markets')
-        .select('*')
-        .eq('shareable_id', decodedMarketId)
-        .single()
-
-      console.log('Market query result:', { data, error })
-
-      if (error) {
-        console.error('Market not found error:', error)
-        setError(`Market not found: ${error.message}`)
-        return
-      }
-
-      if (!data) {
-        setError('Market not found')
-        return
-      }
-
+      console.log('Fetching market:', decodedMarketId)
+      const data = await marketAPI.getMarket(decodedMarketId)
       setMarket(data)
-    } catch (err) {
+      setError(null)
+    } catch (err: any) {
       console.error('Error loading market:', err)
-      setError('Error loading market')
+      setError(err.message || 'Market not found')
     } finally {
       setLoading(false)
     }
-  }, [marketId, decodedMarketId])
+  }, [decodedMarketId])
 
   const fetchUserVote = useCallback(async () => {
     if (!market || !address) return
 
     try {
-      const { data, error } = await supabase
-        .from('votes')
-        .select('*')
-        .eq('market_id', market.id)
-        .eq('voter_address', address)
-        .single()
-
-      if (data && !error) {
-        setUserVote(data)
-        setPrediction(data.prediction)
-        setVoteType(data.vote_type)
-        setEvidence(data.evidence || '')
+      const hasVoted = await marketAPI.hasVoted(market.market_id, address)
+      if (hasVoted) {
+        const votes = await marketAPI.getVotes(market.market_id)
+        const myVote = votes.find(v => v.voter.toLowerCase() === address.toLowerCase())
+        if (myVote) {
+          setUserVote(myVote)
+          setPrediction(myVote.value)
+          setVoteType(myVote.value > 0.5 ? 'yes' : 'no')
+        }
       }
     } catch (err) {
       console.error('Error fetching user vote:', err)
@@ -95,13 +68,9 @@ export default function MarketPage() {
     if (!market) return
 
     try {
-      const { data } = await supabase.rpc('get_market_stats', {
-        market_uuid: market.id
-      })
-
-      if (data && data.length > 0) {
-        setMarketStats(data[0])
-      }
+      const votes = await marketAPI.getVotes(market.market_id)
+      const stats = marketAPI.calculateStats(votes)
+      setMarketStats(stats)
     } catch (err) {
       console.error('Error fetching market stats:', err)
     }
@@ -120,45 +89,32 @@ export default function MarketPage() {
     }
   }, [market, address, fetchUserVote, fetchMarketStats])
 
-  // Real-time updates for market stats
+  // Poll for stats updates every 5 seconds
   useEffect(() => {
     if (!market) return
 
-    console.log('Setting up real-time subscription for market:', market.id)
+    const interval = setInterval(() => {
+      fetchMarketStats()
+      fetchUserVote()
+    }, 5000)
 
-    const channel = supabase
-      .channel(`market-${market.id}`)
-      .on('postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'votes',
-          filter: `market_id=eq.${market.id}`
-        },
-        (payload) => {
-          console.log('Real-time vote update:', payload)
-          fetchMarketStats()
-          if (address && (payload.new as any)?.voter_address === address) {
-            fetchUserVote()
-          }
-        }
-      )
-      .subscribe()
-
-    return () => {
-      console.log('Cleaning up real-time subscription')
-      supabase.removeChannel(channel)
-    }
-  }, [market, address, fetchMarketStats, fetchUserVote])
+    return () => clearInterval(interval)
+  }, [market, fetchMarketStats, fetchUserVote])
 
   const handleSubmitVote = async () => {
-    if (!isConnected || !address || !market) {
+    if (!isConnected || !address || !walletClient || !market) {
       alert('Please connect your wallet first')
       return
     }
 
-    if (market.status !== 'active') {
-      alert('This market is no longer accepting votes')
+    const now = Math.floor(Date.now() / 1000)
+    if (now < market.end_date) {
+      alert('Voting has not started yet. Wait until the market ends.')
+      return
+    }
+
+    if (now > market.voting_deadline) {
+      alert('Voting period has ended for this market')
       return
     }
 
@@ -170,40 +126,28 @@ export default function MarketPage() {
     setIsSubmitting(true)
 
     try {
-      // Ensure the user exists in our database
-      const { error: userError } = await supabase
-        .from('users')
-        .upsert({ wallet_address: address }, { onConflict: 'wallet_address' })
+      // Create message to sign
+      const message = signatureHelpers.getVoteMessage(market.market_id, prediction)
+      
+      // Sign the message
+      const signature = await walletClient.signMessage({ message })
 
-      if (userError) {
-        console.error('Error creating user:', userError)
-      } else {
-        console.log('User created/updated successfully for voting')
-      }
-
-      // Cast the vote
-      const { error } = await supabase.rpc('cast_vote', {
-        market_uuid: market.id,
-        voter_addr: address,
-        vote_prediction: prediction,
-        vote_type_val: voteType,
-        vote_evidence: evidence || null
+      // Cast vote via API
+      await marketAPI.castVote({
+        marketId: market.market_id,
+        voter: address,
+        value: prediction,
+        signature
       })
 
-      if (error) {
-        console.error('Error casting vote:', error)
-        alert('Error casting vote: ' + error.message)
-        return
-      }
-
-      // Refresh the user vote and stats
+      // Refresh data
       await fetchUserVote()
       await fetchMarketStats()
       
       alert(userVote ? 'Vote updated successfully!' : 'Vote submitted successfully!')
-    } catch (err) {
-      console.error('Unexpected error:', err)
-      alert('An unexpected error occurred')
+    } catch (err: any) {
+      console.error('Error casting vote:', err)
+      alert('Error casting vote: ' + (err.message || 'Unknown error'))
     } finally {
       setIsSubmitting(false)
     }
@@ -228,17 +172,20 @@ export default function MarketPage() {
             Market Not Found
           </h2>
           <p className="text-muted-foreground mb-6">
-            The market you&apos;re looking for doesn&apos;t exist or has been removed.
+            {error || "The market you're looking for doesn't exist or has been removed."}
           </p>
-          <Link href="/">
+          <Link href="/markets">
             <Button>
-              Go Home
+              Browse Markets
             </Button>
           </Link>
         </div>
       </div>
     )
   }
+
+  const now = Math.floor(Date.now() / 1000)
+  const isVotingOpen = now >= market.end_date && now <= market.voting_deadline
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-muted/20">
@@ -251,27 +198,44 @@ export default function MarketPage() {
             <Card>
               <CardHeader>
                 <div className="flex items-center gap-2 mb-2">
-                  <Badge variant={market.status === 'active' ? 'default' : 'secondary'}>
-                    {market.status.toUpperCase()}
-                  </Badge>
-                  {market.status === 'active' && (
-                    <Badge variant="outline">
-                      <div className="flex items-center gap-1">
-                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                        LIVE
-                      </div>
-                    </Badge>
+                  {market.resolved ? (
+                    <Badge variant="outline">RESOLVED</Badge>
+                  ) : now < market.end_date ? (
+                    <Badge variant="default">ACTIVE</Badge>
+                  ) : now < market.voting_deadline ? (
+                    <>
+                      <Badge variant="secondary">VOTING</Badge>
+                      <Badge variant="outline">
+                        <div className="flex items-center gap-1">
+                          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                          LIVE
+                        </div>
+                      </Badge>
+                    </>
+                  ) : (
+                    <Badge variant="outline">ENDED</Badge>
                   )}
+                  <Badge variant="outline">{market.category}</Badge>
                 </div>
                 <CardTitle className="text-2xl">
-                  {market.title}
+                  {market.question}
                 </CardTitle>
                 <CardDescription className="text-base">
                   {market.description}
                 </CardDescription>
-                <div className="flex items-center gap-4 text-sm text-muted-foreground mt-4">
-                  <span>Created: {new Date(market.created_at).toLocaleDateString()}</span>
-                  <span>Threshold: {(market.resolution_threshold * 100).toFixed(0)}%</span>
+                <div className="flex flex-col gap-2 text-sm text-muted-foreground mt-4">
+                  <div className="flex justify-between">
+                    <span>Created:</span>
+                    <span>{new Date(market.created_at * 1000).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Market Ends:</span>
+                    <span>{new Date(market.end_date * 1000).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Voting Ends:</span>
+                    <span>{new Date(market.voting_deadline * 1000).toLocaleString()}</span>
+                  </div>
                 </div>
               </CardHeader>
 
@@ -283,6 +247,12 @@ export default function MarketPage() {
                     <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
                       <TrendingUp className="h-4 w-4" />
                       Market Statistics
+                      {isVotingOpen && (
+                        <Badge variant="outline" className="ml-auto">
+                          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-1"></div>
+                          Live
+                        </Badge>
+                      )}
                     </h3>
                     <div className="grid grid-cols-2 gap-4">
                       <Card>
@@ -306,12 +276,25 @@ export default function MarketPage() {
                       <Card>
                         <CardContent className="p-4 text-center">
                           <div className="text-2xl font-bold text-blue-600">
-                            {(marketStats.average_confidence * 100).toFixed(1)}%
+                            {(marketStats.average_vote * 100).toFixed(1)}%
                           </div>
                           <div className="text-sm text-muted-foreground">Avg Confidence</div>
                         </CardContent>
                       </Card>
                     </div>
+
+                    {marketStats.total_votes > 0 && (
+                      <div className="mt-4">
+                        <Progress 
+                          value={(marketStats.yes_votes / marketStats.total_votes) * 100}
+                          className="h-3"
+                        />
+                        <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                          <span>No ({marketStats.no_votes})</span>
+                          <span>Yes ({marketStats.yes_votes})</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               )}
@@ -327,7 +310,11 @@ export default function MarketPage() {
                 <CardDescription>
                   {!isConnected 
                     ? 'Please connect your wallet to participate in this prediction market'
-                    : 'Vote with confidence and provide evidence for your prediction'
+                    : !isVotingOpen
+                    ? now < market.end_date
+                      ? 'Voting opens after the market ends'
+                      : 'Voting period has ended'
+                    : 'Vote with confidence - 0 = Definitely No, 1 = Definitely Yes'
                   }
                 </CardDescription>
               </CardHeader>
@@ -348,20 +335,22 @@ export default function MarketPage() {
                         <Button
                           onClick={() => {
                             setVoteType('yes')
-                            setPrediction(1.0) // 100% confidence for manual YES
+                            setPrediction(1.0)
                           }}
                           variant={voteType === 'yes' ? 'default' : 'outline'}
                           className="h-12"
+                          disabled={!isVotingOpen}
                         >
                           YES
                         </Button>
                         <Button
                           onClick={() => {
                             setVoteType('no')
-                            setPrediction(0.0) // 0% confidence for manual NO
+                            setPrediction(0.0)
                           }}
                           variant={voteType === 'no' ? 'destructive' : 'outline'}
                           className="h-12"
+                          disabled={!isVotingOpen}
                         >
                           NO
                         </Button>
@@ -386,15 +375,14 @@ export default function MarketPage() {
                           const newPrediction = parseFloat(e.target.value)
                           setPrediction(newPrediction)
                           
-                          // Auto-select vote type based on confidence
                           if (newPrediction > 0.5) {
                             setVoteType('yes')
                           } else if (newPrediction < 0.5) {
                             setVoteType('no')
                           }
-                          // At exactly 0.5, don't change vote type (user must choose manually)
                         }}
-                        className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer"
+                        disabled={!isVotingOpen}
+                        className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer disabled:opacity-50"
                       />
                       <div className="flex justify-between text-sm text-muted-foreground">
                         <span>0% (Certain NO)</span>
@@ -416,27 +404,20 @@ export default function MarketPage() {
                       </div>
                     </div>
 
-                    {/* Evidence */}
-                    <div className="space-y-3">
-                      <Label htmlFor="evidence" className="text-base font-medium">
-                        Evidence/Reasoning (Optional)
-                      </Label>
-                      <textarea
-                        id="evidence"
-                        value={evidence}
-                        onChange={(e) => setEvidence(e.target.value)}
-                        rows={3}
-                        className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                        placeholder="Explain your reasoning or provide evidence..."
-                      />
-                    </div>
+                    {userVote && (
+                      <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded-lg">
+                        <p className="text-sm text-blue-900 dark:text-blue-100">
+                          <strong>Your current vote:</strong> {(userVote.value * 100).toFixed(1)}% ({userVote.value > 0.5 ? 'YES' : 'NO'})
+                        </p>
+                      </div>
+                    )}
 
                     <Separator />
 
                     {/* Submit Button */}
                     <Button
                       onClick={handleSubmitVote}
-                      disabled={isSubmitting || market.status !== 'active' || prediction === 0.5}
+                      disabled={isSubmitting || !isVotingOpen || prediction === 0.5}
                       className="w-full"
                       size="lg"
                     >
@@ -444,21 +425,22 @@ export default function MarketPage() {
                         ? 'Submitting...' 
                         : prediction === 0.5
                         ? 'Cannot Vote at 50%'
+                        : !isVotingOpen
+                        ? now < market.end_date
+                          ? 'Voting Not Started'
+                          : 'Voting Ended'
                         : userVote 
                         ? 'Update Vote' 
                         : 'Submit Vote'
                       }
                     </Button>
 
-                    {market.status !== 'active' && (
+                    {!isVotingOpen && (
                       <p className="text-sm text-destructive text-center">
-                        This market is no longer accepting votes
-                      </p>
-                    )}
-                    
-                    {prediction === 0.5 && market.status === 'active' && (
-                      <p className="text-sm text-destructive text-center">
-                        Move the slider or click YES/NO to vote
+                        {now < market.end_date
+                          ? `Voting opens ${new Date(market.end_date * 1000).toLocaleString()}`
+                          : `Voting ended ${new Date(market.voting_deadline * 1000).toLocaleString()}`
+                        }
                       </p>
                     )}
                   </div>
@@ -479,7 +461,7 @@ export default function MarketPage() {
               variant="outline"
               size="lg"
               onClick={() => {
-                navigator.clipboard.writeText(`${window.location.origin}/market/${market.shareable_id}`)
+                navigator.clipboard.writeText(`${window.location.origin}/market/${market.market_id}`)
                 alert('Market link copied to clipboard!')
               }}
               className="gap-2"
@@ -487,6 +469,12 @@ export default function MarketPage() {
               <Share2 className="h-4 w-4" />
               Share Market
             </Button>
+            <Link href="/markets">
+              <Button variant="outline" size="lg" className="gap-2">
+                <ArrowLeft className="h-4 w-4" />
+                All Markets
+              </Button>
+            </Link>
           </div>
         </div>
       </div>

@@ -1,19 +1,19 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { useParams, useRouter } from 'next/navigation'
-import Link from 'next/link'
-import { useAccount } from 'wagmi'
-import { supabase, type PredictionMarket, type Vote } from '@/lib/supabase'
 import { Navigation } from '@/components/navigation'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
-import { cn } from '@/lib/utils'
-import { TrendingUp, Users, Activity, Target, Share2, ArrowLeft } from 'lucide-react'
 import { VoterNetworkGraph } from '@/components/voter-network-graph'
+import { supabase, type PredictionMarket, type Vote } from '@/lib/supabase'
+import { cn } from '@/lib/utils'
+import { Activity, Network, Share2, Target, Users } from 'lucide-react'
+import Link from 'next/link'
+import { useParams, useRouter } from 'next/navigation'
+import { useCallback, useEffect, useState } from 'react'
+import { useAccount } from 'wagmi'
 
 interface MarketStats {
   total_votes: number
@@ -42,27 +42,28 @@ export default function LiveMarketMonitor() {
   const [marketStats, setMarketStats] = useState<MarketStats | null>(null)
   const [votes, setVotes] = useState<VoteWithUser[]>([])
   const [isCreator, setIsCreator] = useState(false)
-  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting')
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
-  const [retryCount, setRetryCount] = useState(0)
-  const [subscriptionError, setSubscriptionError] = useState<string | null>(null)
 
   const marketId = params.id as string
   const decodedMarketId = decodeURIComponent(marketId)
+  // Convert to shareable_id (first 12 characters if it's a full market_id)
+  const shareableId = decodedMarketId.length > 12 ? decodedMarketId.substring(0, 12) : decodedMarketId
 
   const fetchMarket = useCallback(async () => {
     try {
+      console.log('Fetching market with shareable_id:', shareableId)
       const { data, error } = await supabase
         .from('prediction_markets')
         .select('*')
-        .eq('shareable_id', decodedMarketId)
+        .eq('shareable_id', shareableId)
         .single()
 
       if (error || !data) {
+        console.error('Market not found in Supabase:', error)
         setError('Market not found')
         return
       }
 
+      console.log('Market found:', data)
       setMarket(data)
       setIsCreator(address === data.created_by)
     } catch (err) {
@@ -71,7 +72,7 @@ export default function LiveMarketMonitor() {
     } finally {
       setLoading(false)
     }
-  }, [marketId, decodedMarketId, address])
+  }, [shareableId, address])
 
   const fetchMarketStats = useCallback(async () => {
     if (!market) return
@@ -123,121 +124,34 @@ export default function LiveMarketMonitor() {
     }
   }, [market, fetchMarketStats, fetchVotes])
 
-  // Enhanced real-time updates with retry logic and polling fallback
+  // Real-time updates
   useEffect(() => {
     if (!market) return
 
-    console.log('🔴 Setting up live monitoring for market:', market.id)
-    setConnectionStatus('connecting')
-    setSubscriptionError(null)
+    console.log('Setting up live monitoring for market:', market.id)
 
-    let channel: any = null
-    let pollInterval: NodeJS.Timeout | null = null
-    let retryTimeout: NodeJS.Timeout | null = null
-
-    const setupSubscription = () => {
-      console.log(`🔄 Attempting to connect (attempt ${retryCount + 1})`)
-      
-      channel = supabase
-        .channel(`live-monitor-${market.id}-${Date.now()}`)
-        .on('postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'votes',
-            filter: `market_id=eq.${market.id}`
-          },
-          (payload) => {
-            console.log('🟢 Live vote update received:', payload)
-            setLastUpdate(new Date())
-            fetchMarketStats()
-            fetchVotes()
-            // Reset retry count on successful update
-            setRetryCount(0)
-          }
-        )
-        .subscribe((status) => {
-          console.log('📡 Subscription status:', status)
-          switch (status) {
-            case 'SUBSCRIBED':
-              setConnectionStatus('connected')
-              setSubscriptionError(null)
-              setRetryCount(0)
-              console.log('✅ Successfully connected to real-time updates')
-              // Clear any existing polling
-              if (pollInterval) {
-                clearInterval(pollInterval)
-                pollInterval = null
-              }
-              break
-            case 'CHANNEL_ERROR':
-            case 'TIMED_OUT':
-              setConnectionStatus('error')
-              setSubscriptionError(`Connection error: ${status}`)
-              console.error('❌ Subscription error:', status)
-              handleConnectionFailure()
-              break
-            case 'CLOSED':
-              setConnectionStatus('disconnected')
-              console.log('🔴 Subscription closed')
-              break
-            default:
-              console.log('📊 Subscription status:', status)
-          }
-        })
-    }
-
-    const handleConnectionFailure = () => {
-      // Clean up current subscription
-      if (channel) {
-        supabase.removeChannel(channel)
-        channel = null
-      }
-
-      // Set up polling fallback if real-time fails
-      if (!pollInterval) {
-        console.log('🔄 Real-time failed, starting polling fallback...')
-        setConnectionStatus('disconnected')
-        
-        pollInterval = setInterval(() => {
-          console.log('🔄 Polling for updates...')
+    const channel = supabase
+      .channel(`live-monitor-${market.id}`)
+      .on('postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'votes',
+          filter: `market_id=eq.${market.id}`
+        },
+        (payload) => {
+          console.log('Live vote update:', payload)
           fetchMarketStats()
           fetchVotes()
-          setLastUpdate(new Date())
-        }, 3000) // Poll every 3 seconds
-      }
+        }
+      )
+      .subscribe()
 
-      // Retry subscription after delay
-      if (retryCount < 5) {
-        const delay = Math.min(1000 * Math.pow(2, retryCount), 10000) // Exponential backoff, max 10s
-        console.log(`🔄 Retrying subscription in ${delay}ms...`)
-        
-        retryTimeout = setTimeout(() => {
-          setRetryCount(prev => prev + 1)
-          setupSubscription()
-        }, delay)
-      }
-    }
-
-    // Initial subscription attempt
-    setupSubscription()
-
-    // Cleanup function
     return () => {
-      console.log('🧹 Cleaning up live monitoring subscription')
-      setConnectionStatus('disconnected')
-      
-      if (channel) {
-        supabase.removeChannel(channel)
-      }
-      if (pollInterval) {
-        clearInterval(pollInterval)
-      }
-      if (retryTimeout) {
-        clearTimeout(retryTimeout)
-      }
+      console.log('Cleaning up live monitoring subscription')
+      supabase.removeChannel(channel)
     }
-  }, [market, fetchMarketStats, fetchVotes, retryCount])
+  }, [market, fetchMarketStats, fetchVotes])
 
   const getConsensusDirection = () => {
     if (!marketStats || marketStats.total_votes === 0) return 'neutral'
@@ -278,39 +192,6 @@ export default function LiveMarketMonitor() {
         return 'STRONG NO'
       default:
         return 'NEUTRAL'
-    }
-  }
-
-  const getConnectionStatusInfo = (status: typeof connectionStatus) => {
-    switch (status) {
-      case 'connected':
-        return {
-          text: 'LIVE',
-          color: 'bg-green-500',
-          textColor: 'text-green-600',
-          icon: '🟢'
-        }
-      case 'connecting':
-        return {
-          text: retryCount > 0 ? `CONNECTING (${retryCount}/5)` : 'CONNECTING',
-          color: 'bg-yellow-500',
-          textColor: 'text-yellow-600',
-          icon: '🟡'
-        }
-      case 'disconnected':
-        return {
-          text: 'POLLING',
-          color: 'bg-blue-500',
-          textColor: 'text-blue-600',
-          icon: '🔄'
-        }
-      case 'error':
-        return {
-          text: 'ERROR',
-          color: 'bg-red-500',
-          textColor: 'text-red-600',
-          icon: '🔴'
-        }
     }
   }
 
@@ -362,22 +243,12 @@ export default function LiveMarketMonitor() {
                     <Badge variant={getConsensusVariant(consensus)} className="text-sm">
                       {market.status.toUpperCase()}
                     </Badge>
-                    <Badge variant="outline" className={`text-sm ${getConnectionStatusInfo(connectionStatus).textColor}`}>
+                    <Badge variant="outline" className="text-sm">
                       <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${
-                          connectionStatus === 'connected' ? 'bg-green-500 animate-pulse' :
-                          connectionStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' :
-                          connectionStatus === 'error' ? 'bg-red-500 animate-pulse' :
-                          'bg-gray-500'
-                        }`}></div>
-                        {getConnectionStatusInfo(connectionStatus).text}
+                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                        LIVE
                       </div>
                     </Badge>
-                    {lastUpdate && connectionStatus === 'connected' && (
-                      <Badge variant="secondary" className="text-xs">
-                        Updated {lastUpdate.toLocaleTimeString()}
-                      </Badge>
-                    )}
                   </div>
                   <CardTitle className="text-4xl mb-4">
                     {market.title}
@@ -439,83 +310,25 @@ export default function LiveMarketMonitor() {
             )}
           </Card>
 
-          {/* Connection Status Card */}
-          {connectionStatus === 'disconnected' && (
-            <Card className="mb-8 border-blue-200 bg-blue-50/50 dark:border-blue-800 dark:bg-blue-950/20">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-3">
-                  <div className="text-2xl">🔄</div>
-                  <div>
-                    <h3 className="font-semibold text-blue-800 dark:text-blue-200">
-                      Polling Mode Active
-                    </h3>
-                    <p className="text-sm text-blue-600 dark:text-blue-400">
-                      Real-time connection unavailable. Using polling every 3 seconds to check for updates.
-                    </p>
-                  </div>
+          {/* Network Graph Visualization */}
+          {votes.length > 0 && (
+            <Card className="mb-8">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Network className="h-5 w-5" />
+                  Voter Network Graph
+                </CardTitle>
+                <CardDescription>
+                  Green nodes = Yes votes, Red nodes = No votes. Brightness indicates confidence level.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[500px] w-full border rounded-lg overflow-hidden">
+                  <VoterNetworkGraph votes={votes} />
                 </div>
               </CardContent>
             </Card>
           )}
-
-          {connectionStatus === 'error' && (
-            <Card className="mb-8 border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-3">
-                  <div className="text-2xl">🔴</div>
-                  <div>
-                    <h3 className="font-semibold text-red-800 dark:text-red-200">
-                      Connection Error
-                    </h3>
-                    <p className="text-sm text-red-600 dark:text-red-400">
-                      {subscriptionError || 'Unable to connect to live updates. Using polling fallback.'}
-                    </p>
-                    <p className="text-xs text-red-500 dark:text-red-500 mt-2">
-                      💡 Tip: Enable Realtime for the 'votes' table in your Supabase dashboard to get instant updates.
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Voter Network Graph */}
-          <Card className="mb-8">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Activity className="h-5 w-5" />
-                Voter Network
-              </CardTitle>
-              <CardDescription>
-                Interactive network showing voter relationships. Green = Yes votes, Red = No votes. 
-                Opacity = confidence level. Moderate voters bridge between camps.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div style={{ height: '500px' }}>
-                <VoterNetworkGraph votes={votes} />
-              </div>
-              {/* Legend */}
-              <div className="mt-4 flex flex-wrap gap-4 text-xs text-muted-foreground">
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-full" style={{ background: 'rgba(34, 197, 94, 1)' }}></div>
-                  <span>Strong Yes (&gt;70%)</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-full" style={{ background: 'rgba(34, 197, 94, 0.5)' }}></div>
-                  <span>Weak Yes</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-full" style={{ background: 'rgba(239, 68, 68, 0.7)' }}></div>
-                  <span>Moderate (Bridge)</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-full" style={{ background: 'rgba(239, 68, 68, 1)' }}></div>
-                  <span>Strong No (&lt;30%)</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
 
           <div className="grid lg:grid-cols-2 gap-8">
             {/* Consensus Visualization */}
@@ -695,36 +508,6 @@ export default function LiveMarketMonitor() {
               <Share2 className="h-4 w-4" />
               Share Market
             </Button>
-            <Button
-              size="lg"
-              variant="secondary"
-              onClick={() => {
-                console.log('🔄 Manual refresh triggered')
-                fetchMarketStats()
-                fetchVotes()
-              }}
-              className="gap-2"
-            >
-              <Activity className="h-4 w-4" />
-              Refresh Data
-            </Button>
-            {connectionStatus !== 'connected' && (
-              <Button
-                size="lg"
-                variant="outline"
-                onClick={() => {
-                  console.log('🔄 Manual connection retry triggered')
-                  setRetryCount(0)
-                  setConnectionStatus('connecting')
-                  // Force re-subscription by changing the effect dependency
-                  window.location.reload()
-                }}
-                className="gap-2"
-              >
-                <Activity className="h-4 w-4" />
-                Retry Connection
-              </Button>
-            )}
           </div>
         </div>
       </div>

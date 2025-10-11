@@ -1,27 +1,19 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import Link from 'next/link'
-import { useAccount } from 'wagmi'
-import { supabase, type PredictionMarket } from '@/lib/supabase'
 import { Navigation } from '@/components/navigation'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
-import { cn } from '@/lib/utils'
-import { Search, TrendingUp, Users, Target } from 'lucide-react'
+import { marketAPI, type Market, type MarketStats } from '@/lib/apiService'
+import { Search, TrendingUp } from 'lucide-react'
+import Link from 'next/link'
+import { useCallback, useEffect, useState } from 'react'
+import { useAccount } from 'wagmi'
 
-interface MarketWithStats extends PredictionMarket {
-  stats?: {
-    total_votes: number
-    yes_votes: number
-    no_votes: number
-    weighted_yes: number
-    weighted_no: number
-    average_confidence: number
-  }
+interface MarketWithStats extends Market {
+  stats?: MarketStats
 }
 
 export default function MarketsPage() {
@@ -29,7 +21,7 @@ export default function MarketsPage() {
   const [markets, setMarkets] = useState<MarketWithStats[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<'all' | 'active' | 'ended' | 'resolved'>('all')
+  const [filter, setFilter] = useState<'all' | 'active' | 'voting' | 'resolved'>('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [sortBy, setSortBy] = useState<'created' | 'votes' | 'confidence'>('created')
 
@@ -37,51 +29,36 @@ export default function MarketsPage() {
     try {
       setLoading(true)
       
-      const { data: marketsData, error: marketsError } = await supabase
-        .from('prediction_markets')
-        .select('*')
-        .order('created_at', { ascending: false })
-
-      if (marketsError) {
-        console.error('Error fetching markets:', marketsError)
-        setError('Failed to load markets')
-        return
+      let marketsData: Market[]
+      
+      if (filter === 'active') {
+        marketsData = await marketAPI.getActiveMarkets()
+      } else if (filter === 'voting') {
+        marketsData = await marketAPI.getVotingMarkets()
+      } else {
+        marketsData = await marketAPI.getAllMarkets()
       }
 
-      if (!marketsData) {
-        setMarkets([])
-        return
+      if (filter === 'resolved') {
+        marketsData = marketsData.filter(m => m.resolved)
       }
 
+      // Fetch stats for each market
       const marketsWithStats = await Promise.all(
         marketsData.map(async (market) => {
           try {
-            const { data: statsData } = await supabase.rpc('get_market_stats', {
-              market_uuid: market.id
-            })
-
-            return {
-              ...market,
-              stats: statsData && statsData.length > 0 ? statsData[0] : {
-                total_votes: 0,
-                yes_votes: 0,
-                no_votes: 0,
-                weighted_yes: 0,
-                weighted_no: 0,
-                average_confidence: 0
-              }
-            }
+            const votes = await marketAPI.getVotes(market.market_id)
+            const stats = marketAPI.calculateStats(votes)
+            return { ...market, stats }
           } catch (err) {
-            console.error('Error fetching stats for market:', market.id, err)
+            console.error('Error fetching stats for market:', market.market_id, err)
             return {
               ...market,
               stats: {
                 total_votes: 0,
                 yes_votes: 0,
                 no_votes: 0,
-                weighted_yes: 0,
-                weighted_no: 0,
-                average_confidence: 0
+                average_vote: 0
               }
             }
           }
@@ -91,69 +68,32 @@ export default function MarketsPage() {
       setMarkets(marketsWithStats)
       setError(null)
     } catch (err) {
-      console.error('Unexpected error:', err)
-      setError('An unexpected error occurred')
+      console.error('Error fetching markets:', err)
+      setError('Failed to load markets')
     } finally {
       setLoading(false)
     }
-  }, [])
-
-  useEffect(() => {
-    if (markets.length === 0) return
-
-    const channels = markets.map(market => {
-      return supabase
-        .channel(`markets-${market.id}`)
-        .on('postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'votes',
-            filter: `market_id=eq.${market.id}`
-          },
-          (payload) => {
-            console.log('Real-time vote update for market:', market.id, payload)
-            refreshMarketStats(market.id)
-          }
-        )
-        .subscribe()
-    })
-
-    return () => {
-      channels.forEach(channel => supabase.removeChannel(channel))
-    }
-  }, [markets])
-
-  const refreshMarketStats = useCallback(async (marketId: string) => {
-    try {
-      const { data: statsData } = await supabase.rpc('get_market_stats', {
-        market_uuid: marketId
-      })
-
-      if (statsData && statsData.length > 0) {
-        setMarkets(prev => prev.map(market => 
-          market.id === marketId 
-            ? { ...market, stats: statsData[0] }
-            : market
-        ))
-      }
-    } catch (err) {
-      console.error('Error refreshing stats for market:', marketId, err)
-    }
-  }, [])
+  }, [filter])
 
   useEffect(() => {
     fetchMarkets()
   }, [fetchMarkets])
 
+  // Poll for updates every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchMarkets()
+    }, 10000)
+
+    return () => clearInterval(interval)
+  }, [fetchMarkets])
+
   const filteredAndSortedMarkets = markets
     .filter(market => {
-      if (filter !== 'all' && market.status !== filter) return false
-      
       if (searchTerm) {
         const searchLower = searchTerm.toLowerCase()
         return (
-          market.title.toLowerCase().includes(searchLower) ||
+          market.question.toLowerCase().includes(searchLower) ||
           market.description.toLowerCase().includes(searchLower)
         )
       }
@@ -165,33 +105,29 @@ export default function MarketsPage() {
         case 'votes':
           return (b.stats?.total_votes || 0) - (a.stats?.total_votes || 0)
         case 'confidence':
-          return (b.stats?.average_confidence || 0) - (a.stats?.average_confidence || 0)
+          return (b.stats?.average_vote || 0) - (a.stats?.average_vote || 0)
         case 'created':
         default:
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          return b.created_at - a.created_at
       }
     })
 
-  const getStatusVariant = (status: string) => {
-    switch (status) {
-      case 'active':
-        return 'default' as const
-      case 'ended':
-        return 'secondary' as const
-      case 'resolved':
-        return 'outline' as const
-      default:
-        return 'secondary' as const
-    }
-  }
-
-  const getConsensusDirection = (stats: MarketWithStats['stats']) => {
-    if (!stats || stats.total_votes === 0) return 'neutral'
+  const getStatusBadge = (market: Market) => {
+    const now = Math.floor(Date.now() / 1000)
     
-    const weightedSum = stats.weighted_yes - stats.weighted_no
-    if (weightedSum > 0.5) return 'yes'
-    if (weightedSum < -0.5) return 'no'
-    return 'neutral'
+    if (market.resolved) {
+      return <Badge variant="outline">RESOLVED</Badge>
+    }
+    
+    if (now < market.end_date) {
+      return <Badge variant="default">ACTIVE</Badge>
+    }
+    
+    if (now < market.voting_deadline) {
+      return <Badge variant="secondary">VOTING</Badge>
+    }
+    
+    return <Badge variant="outline">ENDED</Badge>
   }
 
   if (loading) {
@@ -233,7 +169,7 @@ export default function MarketsPage() {
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                     <Input
-                      placeholder="Search by title or description..."
+                      placeholder="Search by question or description..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       className="pl-10"
@@ -253,7 +189,7 @@ export default function MarketsPage() {
                   >
                     <option value="all">All Markets</option>
                     <option value="active">Active</option>
-                    <option value="ended">Ended</option>
+                    <option value="voting">Voting</option>
                     <option value="resolved">Resolved</option>
                   </select>
                 </div>
@@ -308,97 +244,87 @@ export default function MarketsPage() {
             </Card>
           ) : (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredAndSortedMarkets.map((market) => {
-                const consensus = getConsensusDirection(market.stats)
-                return (
-                  <Card key={market.id} className="hover:shadow-lg transition-shadow">
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <Badge variant={getStatusVariant(market.status)}>
-                          {market.status.toUpperCase()}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(market.created_at).toLocaleDateString()}
-                        </span>
+              {filteredAndSortedMarkets.map((market) => (
+                <Card key={market.market_id} className="hover:shadow-lg transition-shadow">
+                  <CardHeader>
+                    <div className="flex items-start justify-between">
+                      {getStatusBadge(market)}
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(market.created_at * 1000).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <CardTitle className="line-clamp-2">
+                      {market.question}
+                    </CardTitle>
+                    <CardDescription className="line-clamp-3">
+                      {market.description}
+                    </CardDescription>
+                  </CardHeader>
+
+                  <CardContent className="space-y-4">
+                    {/* Statistics */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-primary">{market.stats?.total_votes || 0}</div>
+                        <div className="text-xs text-muted-foreground">Total Votes</div>
                       </div>
-                      <CardTitle className="line-clamp-2">
-                        {market.title}
-                      </CardTitle>
-                      <CardDescription className="line-clamp-3">
-                        {market.description}
-                      </CardDescription>
-                    </CardHeader>
-
-                    <CardContent className="space-y-4">
-                      {/* Statistics */}
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="text-center">
-                          <div className="text-2xl font-bold text-primary">{market.stats?.total_votes || 0}</div>
-                          <div className="text-xs text-muted-foreground">Total Votes</div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-green-600">
+                          {((market.stats?.average_vote || 0) * 100).toFixed(0)}%
                         </div>
-                        <div className="text-center">
-                          <div className="text-2xl font-bold text-green-600">
-                            {((market.stats?.average_confidence || 0) * 100).toFixed(0)}%
-                          </div>
-                          <div className="text-xs text-muted-foreground">Avg Confidence</div>
-                        </div>
+                        <div className="text-xs text-muted-foreground">Avg Vote</div>
                       </div>
+                    </div>
 
-                      {/* Vote Breakdown */}
-                      {market.stats && market.stats.total_votes > 0 && (
-                        <div className="space-y-2">
-                          <div className="flex justify-between text-sm">
-                            <span className="text-green-600">
-                              Yes: {market.stats.yes_votes}
-                            </span>
-                            <span className="text-red-600">
-                              No: {market.stats.no_votes}
-                            </span>
-                          </div>
-                          <Progress 
-                            value={(market.stats.yes_votes / market.stats.total_votes) * 100}
-                            className="h-2"
-                          />
+                    {/* Vote Breakdown */}
+                    {market.stats && market.stats.total_votes > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-green-600">
+                            Yes: {market.stats.yes_votes}
+                          </span>
+                          <span className="text-red-600">
+                            No: {market.stats.no_votes}
+                          </span>
                         </div>
-                      )}
-
-                      {/* Actions */}
-                      <div className="flex gap-2">
-                        <Link href={`/market/${encodeURIComponent(market.shareable_id)}`} className="flex-1">
-                          <Button className="w-full" variant={market.status === 'active' ? 'default' : 'outline'}>
-                            {market.status === 'active' ? 'Vote Now' : 'View Results'}
-                          </Button>
-                        </Link>
-                        <Link href={`/market/${encodeURIComponent(market.shareable_id)}/live`}>
-                          <Button variant="secondary" size="icon">
-                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                          </Button>
-                        </Link>
-                        {isConnected && market.created_by === address && (
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => {
-                              navigator.clipboard.writeText(`${window.location.origin}/market/${market.shareable_id}`)
-                              alert('Shareable link copied to clipboard!')
-                            }}
-                          >
-                            📤
-                          </Button>
-                        )}
+                        <Progress 
+                          value={(market.stats.yes_votes / market.stats.total_votes) * 100}
+                          className="h-2"
+                        />
                       </div>
+                    )}
 
-                      {/* Live indicator */}
-                      {market.status === 'active' && (
-                        <div className="flex items-center gap-2 text-sm text-green-600">
+                    {/* Category */}
+                    <Badge variant="outline">{market.category}</Badge>
+
+                    {/* Actions */}
+                    <div className="flex gap-2">
+                      <Link href={`/market/${encodeURIComponent(market.market_id)}`} className="flex-1">
+                        <Button className="w-full" variant={!market.resolved ? 'default' : 'outline'}>
+                          {!market.resolved ? 'Vote Now' : 'View Results'}
+                        </Button>
+                      </Link>
+                      <Link href={`/market/${encodeURIComponent(market.market_id)}/live`}>
+                        <Button variant="secondary" size="icon">
                           <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                          Live updates
-                        </div>
+                        </Button>
+                      </Link>
+                      {isConnected && market.creator === address && (
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => {
+                            navigator.clipboard.writeText(`${window.location.origin}/market/${market.market_id}`)
+                            alert('Shareable link copied to clipboard!')
+                          }}
+                        >
+                          📤
+                        </Button>
                       )}
-                    </CardContent>
-                  </Card>
-                )
-              })}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           )}
 
@@ -419,7 +345,7 @@ export default function MarketsPage() {
                   </div>
                   <div className="text-center">
                     <div className="text-3xl font-bold text-green-600 mb-2">
-                      {markets.filter(m => m.status === 'active').length}
+                      {markets.filter(m => !m.resolved && Date.now() / 1000 < m.end_date).length}
                     </div>
                     <div className="text-sm text-muted-foreground">Active</div>
                   </div>

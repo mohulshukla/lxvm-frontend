@@ -1,4 +1,4 @@
-# Prediction Market Platform
+# Prediction Market Platform Yay
 
 A decentralized prediction market platform built with Next.js, Supabase, and RainbowKit for MetaMask wallet integration.
 

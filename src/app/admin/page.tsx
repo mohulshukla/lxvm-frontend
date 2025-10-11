@@ -1,144 +1,159 @@
 'use client'
 
-import { useState } from 'react'
-import Link from 'next/link'
-import { useAccount } from 'wagmi'
-import { supabase, type PredictionMarket } from '@/lib/supabase'
 import { Navigation } from '@/components/navigation'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
-import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
-import { cn } from '@/lib/utils'
-import { Plus, TrendingUp, Users, Target, Copy, ExternalLink } from 'lucide-react'
+import { marketAPI, signatureHelpers, type Market, type MarketStats } from '@/lib/apiService'
+import { Copy, ExternalLink, Plus, Target, TrendingUp, Users } from 'lucide-react'
+import Link from 'next/link'
+import { useEffect, useState } from 'react'
+import { useAccount, useWalletClient } from 'wagmi'
 
 export default function AdminDashboard() {
   const { address, isConnected } = useAccount()
+  const { data: walletClient } = useWalletClient()
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [threshold, setThreshold] = useState(0.1)
+  const [category, setCategory] = useState('Crypto')
+  const [endDate, setEndDate] = useState('')
+  const [votingPeriod, setVotingPeriod] = useState(86400) // 24 hours default
   const [isCreating, setIsCreating] = useState(false)
-  const [createdMarket, setCreatedMarket] = useState<PredictionMarket | null>(null)
-  const [marketStats, setMarketStats] = useState<{
-    total_votes: number
-    yes_votes: number
-    no_votes: number
-    average_confidence: number
-  } | null>(null)
+  const [createdMarket, setCreatedMarket] = useState<Market | null>(null)
+  const [marketStats, setMarketStats] = useState<MarketStats | null>(null)
+  const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null)
 
   const handleCreateMarket = async () => {
-    if (!isConnected || !address) {
+    console.log('🔵 Create Market clicked!')
+    console.log('Wallet status:', { isConnected, address, hasWalletClient: !!walletClient })
+    
+    if (!isConnected || !address || !walletClient) {
+      console.log('❌ Wallet not connected')
       alert('Please connect your wallet first')
       return
     }
 
-    if (!title.trim() || !description.trim()) {
-      alert('Please fill in all fields')
+    console.log('Form values:', { title, description, endDate, category })
+    
+    if (!title.trim() || !description.trim() || !endDate.trim()) {
+      console.log('❌ Missing required fields')
+      alert('Please fill in all required fields')
       return
     }
 
+    // Validate question length (backend requires at least 10 characters)
+    if (title.trim().length < 10) {
+      console.log('❌ Question too short')
+      alert('Market question must be at least 10 characters long')
+      return
+    }
+
+    // Validate end date
+    const endDateTimestamp = Math.floor(new Date(endDate).getTime() / 1000)
+    
+    console.log('Date validation:', { 
+      endDateTimestamp,
+      isValid: !isNaN(endDateTimestamp) && endDateTimestamp > 0
+    })
+    
+    if (isNaN(endDateTimestamp) || endDateTimestamp <= 0) {
+      console.log('❌ Invalid end date')
+      alert('Please select a valid end date')
+      return
+    }
+    
+    // Note: We don't check if the date is in the future here anymore
+    // The smart contract will handle that validation when creating the market
+
+    console.log('✅ All validations passed, requesting signature...')
     setIsCreating(true)
     
     try {
-      // First, ensure the user exists in our database
-      const { error: userError } = await supabase
-        .from('users')
-        .upsert({ wallet_address: address }, { onConflict: 'wallet_address' })
+      
+      // Create message to sign
+      const message = signatureHelpers.getCreateMarketMessage(title, endDateTimestamp)
+      console.log('📝 Message to sign:', message)
+      
+      // Sign the message with the connected wallet
+      console.log('🔐 Requesting wallet signature...')
+      const signature = await walletClient.signMessage({ message })
+      console.log('✅ Signature received:', signature.slice(0, 20) + '...')
 
-      if (userError) {
-        console.error('Error creating user:', userError)
-      } else {
-        console.log('User created/updated successfully')
-      }
-
-      // Create the market using our database function
-      const { data, error } = await supabase.rpc('create_prediction_market', {
-        market_title: title,
-        market_description: description,
-        creator_address: address,
-        threshold: threshold
+      // Create market via API
+      const result = await marketAPI.createMarket({
+        question: title,
+        description,
+        category,
+        endDate: endDateTimestamp,
+        votingPeriod,
+        creator: address,
+        signature
       })
 
-      if (error) {
-        console.error('Error creating market:', error)
-        alert('Error creating market: ' + error.message)
-        return
-      }
+      console.log('Market created successfully:', result)
 
       // Fetch the created market details
-      const { data: marketData, error: marketError } = await supabase
-        .from('prediction_markets')
-        .select('*')
-        .eq('id', data)
-        .single()
+      const market = await marketAPI.getMarket(result.marketId)
+      setCreatedMarket(market)
 
-      if (marketError) {
-        console.error('Error fetching market:', marketError)
-        alert('Market created but error fetching details')
-        return
-      }
-
-      setCreatedMarket(marketData)
+      // Clear form
       setTitle('')
       setDescription('')
-      setThreshold(0.1)
+      setEndDate('')
       
-      // Set up real-time updates for the created market
-      if (marketData) {
-        setupRealtimeUpdates(marketData.id)
-      }
-    } catch (error) {
-      console.error('Unexpected error:', error)
-      alert('An unexpected error occurred')
+      // Start polling for stats
+      startStatsPolling(market.market_id)
+      
+      alert('Market created successfully!')
+    } catch (error: any) {
+      console.error('Error creating market:', error)
+      alert('Error creating market: ' + (error.message || 'Unknown error'))
     } finally {
       setIsCreating(false)
     }
   }
 
-  const setupRealtimeUpdates = (marketId: string) => {
-    console.log('Setting up real-time updates for market:', marketId)
-    
-    const channel = supabase
-      .channel(`admin-market-${marketId}`)
-      .on('postgres_changes', 
-        { 
-          event: '*', 
-          schema: 'public', 
-          table: 'votes',
-          filter: `market_id=eq.${marketId}`
-        }, 
-        (payload) => {
-          console.log('Real-time vote update in admin:', payload)
-          fetchMarketStats(marketId)
-        }
-      )
-      .subscribe()
-
-    return () => {
-      console.log('Cleaning up admin real-time subscription')
-      supabase.removeChannel(channel)
+  const startStatsPolling = (marketId: string) => {
+    // Clear any existing interval
+    if (pollInterval) {
+      clearInterval(pollInterval)
     }
+
+    // Initial fetch
+    fetchMarketStats(marketId)
+
+    // Poll every 5 seconds for updates
+    const interval = setInterval(() => {
+      fetchMarketStats(marketId)
+    }, 5000)
+
+    setPollInterval(interval)
   }
 
   const fetchMarketStats = async (marketId?: string) => {
-    const targetMarketId = marketId || createdMarket?.id
+    const targetMarketId = marketId || createdMarket?.market_id
     if (!targetMarketId) return
 
     try {
-      const { data } = await supabase.rpc('get_market_stats', {
-        market_uuid: targetMarketId
-      })
-
-      if (data && data.length > 0) {
-        setMarketStats(data[0])
-      }
+      const votes = await marketAPI.getVotes(targetMarketId)
+      const stats = marketAPI.calculateStats(votes)
+      setMarketStats(stats)
     } catch (err) {
       console.error('Error fetching market stats:', err)
     }
   }
+
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (pollInterval) {
+        clearInterval(pollInterval)
+      }
+    }
+  }, [pollInterval])
 
   if (!isConnected) {
     return (
@@ -196,13 +211,17 @@ export default function AdminDashboard() {
               
               <CardContent className="space-y-6">
                 <div className="space-y-2">
-                  <Label htmlFor="title">Market Title</Label>
+                  <Label htmlFor="title">Market Question</Label>
                   <Input
                     id="title"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    placeholder="Will Bitcoin reach $100k by end of 2024?"
+                    placeholder="Will Bitcoin reach $100k by end of 2025?"
+                    minLength={10}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Minimum 10 characters ({title.length}/10)
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -215,24 +234,56 @@ export default function AdminDashboard() {
                     className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     placeholder="Provide detailed context about the prediction market..."
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Maximum 2000 characters ({description.length}/2000)
+                  </p>
                 </div>
 
-                <div className="space-y-3">
-                  <Label htmlFor="threshold">
-                    Resolution Threshold: {threshold}
+                <div className="space-y-2">
+                  <Label htmlFor="category">Category</Label>
+                  <select
+                    id="category"
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <option value="Crypto">Crypto</option>
+                    <option value="Politics">Politics</option>
+                    <option value="Sports">Sports</option>
+                    <option value="Technology">Technology</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="endDate">Market End Date</Label>
+                  <Input
+                    id="endDate"
+                    type="datetime-local"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    When the market closes for predictions (select any future time)
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="votingPeriod">
+                    Voting Period: {votingPeriod / 3600} hours
                   </Label>
                   <input
-                    id="threshold"
+                    id="votingPeriod"
                     type="range"
-                    min="0.05"
-                    max="0.5"
-                    step="0.05"
-                    value={threshold}
-                    onChange={(e) => setThreshold(parseFloat(e.target.value))}
+                    min="3600"
+                    max="604800"
+                    step="3600"
+                    value={votingPeriod}
+                    onChange={(e) => setVotingPeriod(parseInt(e.target.value))}
                     className="w-full"
                   />
-                  <p className="text-sm text-muted-foreground">
-                    Auto-resolve when weighted vote sum is below {threshold} or above {1 - threshold}
+                  <p className="text-xs text-muted-foreground">
+                    Time allowed for voting after market ends (1 hour to 7 days)
                   </p>
                 </div>
 
@@ -263,8 +314,8 @@ export default function AdminDashboard() {
                 <CardContent className="space-y-6">
                   <div className="space-y-4">
                     <div>
-                      <Label className="text-sm font-medium">Title:</Label>
-                      <p className="text-foreground">{createdMarket.title}</p>
+                      <Label className="text-sm font-medium">Question:</Label>
+                      <p className="text-foreground">{createdMarket.question}</p>
                     </div>
                     
                     <div>
@@ -273,10 +324,20 @@ export default function AdminDashboard() {
                     </div>
 
                     <div>
+                      <Label className="text-sm font-medium">Category:</Label>
+                      <Badge>{createdMarket.category}</Badge>
+                    </div>
+
+                    <div>
+                      <Label className="text-sm font-medium">End Date:</Label>
+                      <p className="text-sm">{new Date(createdMarket.end_date * 1000).toLocaleString()}</p>
+                    </div>
+
+                    <div>
                       <Label className="text-sm font-medium">Shareable Link:</Label>
                       <div className="bg-muted p-3 rounded-md">
                         <code className="text-sm break-all">
-                          {typeof window !== 'undefined' ? window.location.origin : ''}/market/{createdMarket.shareable_id}
+                          {typeof window !== 'undefined' ? window.location.origin : ''}/market/{createdMarket.market_id}
                         </code>
                       </div>
                       <div className="flex gap-2 mt-2">
@@ -285,7 +346,7 @@ export default function AdminDashboard() {
                           size="sm"
                           onClick={() => {
                             if (typeof window !== 'undefined') {
-                              navigator.clipboard.writeText(`${window.location.origin}/market/${createdMarket.shareable_id}`)
+                              navigator.clipboard.writeText(`${window.location.origin}/market/${createdMarket.market_id}`)
                               alert('Link copied to clipboard!')
                             }
                           }}
@@ -294,7 +355,7 @@ export default function AdminDashboard() {
                           <Copy className="h-4 w-4 mr-2" />
                           Copy Link
                         </Button>
-                        <Link href={`/market/${encodeURIComponent(createdMarket.shareable_id)}/live`}>
+                        <Link href={`/market/${encodeURIComponent(createdMarket.market_id)}/live`}>
                           <Button variant="outline" size="sm">
                             <ExternalLink className="h-4 w-4" />
                           </Button>
@@ -304,7 +365,7 @@ export default function AdminDashboard() {
 
                     <div>
                       <Label className="text-sm font-medium">Market ID:</Label>
-                      <p className="text-xs text-muted-foreground font-mono">{createdMarket.shareable_id}</p>
+                      <p className="text-xs text-muted-foreground font-mono">{createdMarket.market_id}</p>
                     </div>
                   </div>
 
@@ -316,6 +377,10 @@ export default function AdminDashboard() {
                         <h3 className="font-medium text-foreground mb-4 flex items-center gap-2">
                           <TrendingUp className="h-4 w-4" />
                           Live Statistics
+                          <Badge variant="outline" className="ml-auto">
+                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-1"></div>
+                            Live
+                          </Badge>
                         </h3>
                         <div className="grid grid-cols-2 gap-4">
                           <Card>
@@ -339,7 +404,7 @@ export default function AdminDashboard() {
                           <Card>
                             <CardContent className="p-4 text-center">
                               <div className="text-2xl font-bold text-blue-600">
-                                {(marketStats.average_confidence * 100).toFixed(1)}%
+                                {(marketStats.average_vote * 100).toFixed(1)}%
                               </div>
                               <div className="text-xs text-muted-foreground">Avg Confidence</div>
                             </CardContent>
