@@ -1,9 +1,9 @@
-# Prediction Market Platform Yay
+# Prediction Market Platform
+A decentralized prediction market platform built with Next.js, Supabase, and RainbowKit for MetaMask wallet integration.
 
 ## Note on Deployment
 Head to http://10.40.197.61:3001/ for a working blockchain implementation, since Vercel cannot interface with the server. This link will work when our server is up and running.
 
-A decentralized prediction market platform built with Next.js, Supabase, and RainbowKit for MetaMask wallet integration.
 
 ## Features
 
